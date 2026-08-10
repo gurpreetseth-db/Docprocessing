@@ -22,5 +22,6 @@ targets:
   dev:
     mode: development
     default: true
-  prod:
-    mode: production
+    workspace:
+      host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
+

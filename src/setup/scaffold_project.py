@@ -5,15 +5,42 @@
 # ///
 # DBTITLE 1,Scaffold DAB Project - All Files
 import os
+import base64
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.service.workspace import ImportFormat, Language
 
 BASE = "/Workspace/Users/gurpreet.sethi@databricks.com/Docprocessing"
+w = WorkspaceClient()
 
 def write_file(rel_path, content):
+    """Write a regular file (YAML, txt, README, app code, etc.)"""
     full_path = os.path.join(BASE, rel_path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
     with open(full_path, "w") as f:
         f.write(content)
     print(f"  ✓ {rel_path}")
+
+def write_notebook(rel_path, content, language=Language.PYTHON):
+    """Import content as a Databricks NOTEBOOK (not a plain file).
+    Strips file extension from workspace path since notebooks are referenced without extensions."""
+    full_path = os.path.join(BASE, rel_path)
+    # Strip file extension for the notebook path
+    notebook_path = os.path.splitext(full_path)[0] if '.' in os.path.basename(full_path) else full_path
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+    # Remove existing file to avoid ResourceAlreadyExists conflict with notebook import
+    try:
+        w.workspace.delete(full_path)
+    except Exception:
+        pass
+    encoded = base64.b64encode(content.encode('utf-8')).decode('utf-8')
+    w.workspace.import_(
+        path=notebook_path,
+        format=ImportFormat.SOURCE,
+        language=language,
+        content=encoded,
+        overwrite=True
+    )
+    print(f"  ✓ {rel_path} (notebook)")
 
 print("🚀 Scaffolding Insurance Document Intelligence Platform...\n")
 
@@ -142,10 +169,20 @@ print("\n✅ Bundle config and resource files created!")
 # COMMAND ----------
 
 # DBTITLE 1,Pipeline SQL Files (Bronze, Silver, Gold)
+# Pre-clean existing files to avoid ResourceAlreadyExists conflict
+import time
+_pipeline_dir = os.path.join(BASE, "src/pipeline")
+for _f in ["01_bronze_ingestion.sql", "02_silver_processing.sql", "03_gold_aggregations.sql"]:
+    _p = os.path.join(_pipeline_dir, _f)
+    if os.path.exists(_p):
+        os.remove(_p)
+        print(f"  Removed: {_f}")
+time.sleep(1)  # Allow workspace to propagate deletions
+
 # ============================================================
 # 5. src/pipeline/01_bronze_ingestion.sql
 # ============================================================
-write_file("src/pipeline/01_bronze_ingestion.sql", '''-- Databricks notebook source
+write_notebook("src/pipeline/01_bronze_ingestion.sql", '''-- Databricks notebook source
 -- MAGIC %md
 -- MAGIC # Bronze Layer - Document Ingestion
 -- MAGIC Auto Loader ingests PDF files from the InputPDFs volume
@@ -181,12 +218,12 @@ FROM STREAM read_files(
   \'/Volumes/DocProcessing/DocProcess_Bronze/InputPDFs\',
   format => \'binaryFile\'
 );
-''')
+''', language=Language.SQL)
 
 # ============================================================
 # 6. src/pipeline/02_silver_processing.sql
 # ============================================================
-write_file("src/pipeline/02_silver_processing.sql", '''-- Databricks notebook source
+write_notebook("src/pipeline/02_silver_processing.sql", '''-- Databricks notebook source
 -- MAGIC %md
 -- MAGIC # Silver Layer - Document Parsing & Extraction
 -- MAGIC Uses ai_parse_document() and ai_extract() to structure insurance documents
@@ -217,12 +254,12 @@ AS SELECT
   ) AS extracted_data
 FROM DocProcessing.DocProcess_Silver.parsed_documents
 WHERE try_cast(parsed_content:error_status AS STRING) IS NULL;
-''')
+''', language=Language.SQL)
 
 # ============================================================
 # 7. src/pipeline/03_gold_aggregations.sql
 # ============================================================
-write_file("src/pipeline/03_gold_aggregations.sql", '''-- Databricks notebook source
+write_notebook("src/pipeline/03_gold_aggregations.sql", '''-- Databricks notebook source
 -- MAGIC %md
 -- MAGIC # Gold Layer - Business Aggregations
 -- MAGIC Materialized views powering the Genie agent and dashboards
@@ -288,7 +325,7 @@ AS SELECT
   file_path,
   ingestion_timestamp AS processed_at
 FROM DocProcessing.DocProcess_Silver.extracted_insurance_data;
-''')
+''', language=Language.SQL)
 
 print("\n✅ Pipeline SQL files created!")
 
@@ -997,7 +1034,7 @@ print(f"  4. Deploy the app and set environment variables")
 print("=" * 60)
 '''
 
-write_file("src/setup/generate_sample_data.py", generate_sample_data_content.strip())
+write_notebook("src/setup/generate_sample_data.py", generate_sample_data_content.strip(), language=Language.PYTHON)
 print("\n\u2705 Sample data generator notebook created!")
 
 # COMMAND ----------

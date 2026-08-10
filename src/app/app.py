@@ -50,6 +50,13 @@ body {
     transform: translateY(-2px);
     box-shadow: 0 12px 40px rgba(0, 180, 216, 0.15) !important;
 }
+.metric-value {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #00b4d8, #6c63ff);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
 .status-badge-success {
     background: linear-gradient(135deg, #00c853, #00e676);
     color: #fff; padding: 4px 12px; border-radius: 20px;
@@ -116,7 +123,6 @@ app = dash.Dash(
 
 
 def get_current_user():
-    """Get the current logged-in user."""
     try:
         me = w.current_user.me()
         return {"email": me.user_name, "name": me.display_name or me.user_name.split("@")[0].replace(".", " ").title()}
@@ -125,7 +131,6 @@ def get_current_user():
 
 
 def get_submitted_documents(user_email):
-    """Fetch previously submitted documents for the user."""
     try:
         results = w.statement_execution.execute_statement(
             warehouse_id=os.environ.get("DATABRICKS_WAREHOUSE_ID", ""),
@@ -139,7 +144,6 @@ def get_submitted_documents(user_email):
 
 
 def get_job_runs():
-    """Fetch last 5 job runs."""
     try:
         if not JOB_ID:
             return []
@@ -168,7 +172,6 @@ def get_job_runs():
 
 
 def poll_genie_response(space_id, conversation_id, message_id, timeout=60):
-    """Poll Genie API until response is ready."""
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -184,24 +187,16 @@ def poll_genie_response(space_id, conversation_id, message_id, timeout=60):
     return {"error": "Timeout waiting for Genie response"}
 
 
-# --- Layout Builders ---
 def build_header():
     user = get_current_user()
     return html.Div([
         html.Div([
             html.Div([
                 html.Div([html.I(className="bi bi-file-earmark-medical", style={"fontSize": "2.5rem"})], style={"marginRight": "20px"}),
-                html.Div([
-                    html.H2("Insurance Document Intelligence", className="mb-0", style={"fontWeight": "700", "letterSpacing": "-0.5px"}),
-                    html.P("Pacific Shield Insurance Group - AI-Powered Document Processing", className="mb-0", style={"opacity": "0.85", "fontSize": "0.9rem"})
-                ])
+                html.Div([html.H2("Insurance Document Intelligence", className="mb-0", style={"fontWeight": "700", "letterSpacing": "-0.5px"}), html.P("Pacific Shield Insurance Group - AI-Powered Document Processing", className="mb-0", style={"opacity": "0.85", "fontSize": "0.9rem"})])
             ], style={"display": "flex", "alignItems": "center"}),
             html.Div([
-                html.Div([
-                    html.Span(user["name"], style={"fontWeight": "600", "fontSize": "0.95rem"}),
-                    html.Br(),
-                    html.Span(user["email"], style={"opacity": "0.7", "fontSize": "0.8rem"})
-                ], style={"textAlign": "right", "marginRight": "12px"}),
+                html.Div([html.Span(user["name"], style={"fontWeight": "600", "fontSize": "0.95rem"}), html.Br(), html.Span(user["email"], style={"opacity": "0.7", "fontSize": "0.8rem"})], style={"textAlign": "right", "marginRight": "12px"}),
                 html.Div(user["name"][0].upper(), style={"width": "44px", "height": "44px", "borderRadius": "50%", "background": "rgba(255,255,255,0.2)", "display": "flex", "alignItems": "center", "justifyContent": "center", "fontSize": "1.2rem", "fontWeight": "700"})
             ], style={"display": "flex", "alignItems": "center"})
         ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "color": "white"})
@@ -211,247 +206,138 @@ def build_header():
 def build_tab1():
     user = get_current_user()
     return html.Div([
-        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([
-            html.H4(f"Welcome, {user['name']}!", className="mb-2", style={"fontWeight": "600"}),
-            html.P(f"Logged in as {user['email']} | Upload insurance documents for AI processing", style={"color": "rgba(255,255,255,0.6)", "marginBottom": "0"})
-        ])], className="glass-card mb-4")])]),
+        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([html.H4(f"Welcome, {user['name']}!", className="mb-2", style={"fontWeight": "600"}), html.P(f"Logged in as {user['email']} | Upload insurance documents for AI processing", style={"color": "rgba(255,255,255,0.6)", "marginBottom": "0"})])], className="glass-card mb-4")])]),
         dbc.Row([
-            dbc.Col([dbc.Card([dbc.CardBody([
-                html.H5("Submit Documents", className="mb-3", style={"fontWeight": "600"}),
-                dcc.Upload(
-                    id="upload-pdf",
-                    children=html.Div([
-                        html.I(className="bi bi-cloud-arrow-up", style={"fontSize": "3rem", "color": "#00b4d8"}),
-                        html.P("Drag & Drop or Click to Upload PDF", className="mt-2 mb-1", style={"fontWeight": "500"}),
-                        html.P("Supports .pdf files up to 50MB", style={"fontSize": "0.8rem", "color": "rgba(255,255,255,0.5)"})
-                    ]),
-                    className="upload-zone",
-                    multiple=True,
-                    accept=".pdf"
-                ),
-                html.Div(id="upload-status", className="mt-3")
-            ])], className="glass-card")], md=6),
-            dbc.Col([dbc.Card([dbc.CardBody([
-                html.Div([
-                    html.H5("Submission History", className="mb-0", style={"fontWeight": "600"}),
-                    dbc.Button([html.I(className="bi bi-arrow-clockwise me-1"), "Refresh"], id="refresh-submissions", size="sm", color="info", outline=True)
-                ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-                html.Div(id="submissions-table", className="mt-3")
-            ])], className="glass-card")], md=6)
+            dbc.Col([dbc.Card([dbc.CardBody([html.H5("Submit Documents", className="mb-3", style={"fontWeight": "600"}), dcc.Upload(id="upload-pdf", children=html.Div([html.I(className="bi bi-cloud-arrow-up", style={"fontSize": "3rem", "color": "#00b4d8"}), html.P("Drag & drop PDF files here", className="mt-2 mb-1", style={"fontWeight": "500"}), html.P("or click to browse", style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem"})]), className="upload-zone", multiple=True, accept=".pdf"), html.Div(id="upload-status", className="mt-3")])], className="glass-card mb-4")], md=5),
+            dbc.Col([dbc.Card([dbc.CardBody([html.H5("Submission History", className="mb-3", style={"fontWeight": "600"}), html.Div(id="submissions-table")])], className="glass-card mb-4", style={"minHeight": "350px"})], md=7)
         ])
     ], style={"padding": "0 20px"})
 
 
 def build_tab2():
-    runs = get_job_runs()
-    run_cards = []
-    for run in runs:
-        badge_class = "status-badge-success" if run["status"] == "Success" else "status-badge-failed" if run["status"] == "Failed" else "status-badge-pending"
-        run_cards.append(dbc.Card([dbc.CardBody([
-            html.Div([
-                html.Div([html.Span(f"Run #{run['run_id']}", style={"fontWeight": "600"}), html.Span(run["status"], className=badge_class, style={"marginLeft": "12px"})]),
-                html.Small(run["start_time"], style={"color": "rgba(255,255,255,0.5)"})
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-            html.Div([
-                html.Small(f"Duration: {run['duration']}", style={"color": "rgba(255,255,255,0.6)"}) if run["duration"] else html.Span(),
-                html.Small(run["failure_reason"], style={"color": "#ff5252", "marginLeft": "12px"}) if run["failure_reason"] else html.Span()
-            ], className="mt-2")
-        ])], className="glass-card mb-2"))
-
-    if not run_cards:
-        run_cards = [html.P("No pipeline runs found.", style={"color": "rgba(255,255,255,0.5)", "textAlign": "center", "padding": "20px"})]
-
     return html.Div([
-        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([
-            html.Div([
-                html.H5("Pipeline Control", className="mb-0", style={"fontWeight": "600"}),
-                dbc.Button([html.I(className="bi bi-play-fill me-2"), "Trigger Pipeline"], id="trigger-pipeline", color="info", size="sm")
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-            html.Div(id="pipeline-status", className="mt-2")
-        ])], className="glass-card mb-4")])]),
-        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([
-            html.Div([
-                html.H5("Recent Runs", className="mb-0", style={"fontWeight": "600"}),
-                dbc.Button([html.I(className="bi bi-arrow-clockwise me-1"), "Refresh"], id="refresh-runs", size="sm", color="info", outline=True)
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-            html.Div(run_cards, id="runs-container", className="mt-3")
-        ])], className="glass-card")])])
+        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([html.Div([html.Div([html.H5("Pipeline Control", className="mb-1", style={"fontWeight": "600"}), html.P("Trigger the document processing pipeline on-demand", style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem", "marginBottom": "0"})]), dbc.Button([html.I(className="bi bi-play-fill me-2"), "Run Pipeline Now"], id="run-pipeline-btn", color="info", size="lg", style={"borderRadius": "12px", "fontWeight": "600", "background": "linear-gradient(135deg, #0077b6, #00b4d8)", "border": "none"})], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"})])], className="glass-card mb-4")])]),
+        html.Div(id="run-trigger-status", className="mb-3"),
+        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([html.H5("Recent Pipeline Runs", className="mb-3", style={"fontWeight": "600"}), html.Div(id="runs-table")])], className="glass-card")])])
     ], style={"padding": "0 20px"})
 
 
 def build_tab3():
     return html.Div([
-        dbc.Row([dbc.Col([dbc.Card([dbc.CardBody([
-            html.Div([
-                html.Div([html.I(className="bi bi-stars me-2", style={"color": "#6c63ff"}), html.H5("Genie Chat", className="mb-0 d-inline", style={"fontWeight": "600"})]),
-                html.Small("Ask questions about your insurance data", style={"color": "rgba(255,255,255,0.5)"})
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-            html.Div(id="chat-messages", style={"height": "400px", "overflowY": "auto", "padding": "20px", "marginTop": "15px", "borderRadius": "12px", "background": "rgba(0,0,0,0.2)"}),
-            html.Div([
-                dbc.Input(id="chat-input", placeholder="Ask about sales, claims, or outstanding amounts...", type="text", style={"background": "rgba(255,255,255,0.05)", "border": "1px solid rgba(255,255,255,0.1)", "color": "white", "borderRadius": "12px"}),
-                dbc.Button([html.I(className="bi bi-send-fill")], id="send-chat", color="info", className="ms-2", style={"borderRadius": "12px"})
-            ], style={"display": "flex", "marginTop": "15px"})
-        ])], className="glass-card")])])
+        dbc.Card([dbc.CardBody([
+            html.Div([html.H5([html.I(className="bi bi-stars me-2"), "Genie - Ask About Your Documents"], style={"fontWeight": "600", "marginBottom": "4px"}), html.P("Ask questions in natural language about sales, claims, and processing metrics", style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem", "marginBottom": "0"})], className="mb-3"),
+            html.Div(id="chat-messages", style={"height": "450px", "overflowY": "auto", "padding": "20px", "borderRadius": "12px", "background": "rgba(0,0,0,0.2)", "border": "1px solid rgba(255,255,255,0.05)"}, children=[html.Div([html.Div("Hi! I'm your Document Intelligence assistant. Ask me anything about your insurance documents - sales performance, claims status, outstanding items, and more!", className="chat-bubble-genie")])]),
+            html.Div([dbc.InputGroup([dbc.Input(id="chat-input", type="text", placeholder="Ask about sales, claims, processing status...", style={"background": "rgba(255,255,255,0.05)", "border": "1px solid rgba(255,255,255,0.1)", "color": "white", "borderRadius": "12px 0 0 12px"}), dbc.Button(html.I(className="bi bi-send-fill"), id="send-btn", color="info", style={"borderRadius": "0 12px 12px 0", "background": "linear-gradient(135deg, #0077b6, #00b4d8)", "border": "none", "width": "50px"})], className="mt-3")])
+        ])], className="glass-card", style={"height": "calc(100vh - 220px)"})
     ], style={"padding": "0 20px"})
 
 
-# --- App Layout ---
 app.layout = html.Div([
     html.Style(CUSTOM_CSS),
+    dcc.Store(id="conversation-store", data={"conversation_id": None, "messages": []}),
+    dcc.Store(id="user-store", data=get_current_user()),
     build_header(),
-    dbc.Tabs([
-        dbc.Tab(build_tab1(), label="Document Portal", tab_id="tab-1", active_label_style={"color": "#00b4d8"}),
-        dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", active_label_style={"color": "#00b4d8"}),
-        dbc.Tab(build_tab3(), label="Genie Chat", tab_id="tab-3", active_label_style={"color": "#00b4d8"}),
-    ], id="tabs", active_tab="tab-1", style={"padding": "0 20px"}),
-    dcc.Store(id="chat-history", data=[])
-], style={"maxWidth": "1400px", "margin": "0 auto", "padding": "0 20px 40px"})
+    dbc.Tabs([dbc.Tab(build_tab1(), label="Document Portal", tab_id="tab-1", label_style={"fontSize": "0.9rem"}), dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", label_style={"fontSize": "0.9rem"}), dbc.Tab(build_tab3(), label="Genie Chat", tab_id="tab-3", label_style={"fontSize": "0.9rem"})], id="main-tabs", active_tab="tab-1", style={"padding": "0 20px"}),
+    dcc.Interval(id="refresh-interval", interval=30000, n_intervals=0)
+])
 
 
-# --- Callbacks ---
-@callback(
-    Output("upload-status", "children"),
-    Input("upload-pdf", "contents"),
-    State("upload-pdf", "filename"),
-    prevent_initial_call=True
-)
-def handle_upload(contents_list, filenames):
+@callback(Output("upload-status", "children"), Input("upload-pdf", "contents"), State("upload-pdf", "filename"), State("user-store", "data"), prevent_initial_call=True)
+def handle_upload(contents_list, filenames, user_data):
     if not contents_list:
         return no_update
-    user = get_current_user()
     results = []
     for content, filename in zip(contents_list, filenames):
         try:
-            content_string = content.split(",")[1]
+            content_type, content_string = content.split(",")
             decoded = base64.b64decode(content_string)
-            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-            email_prefix = user["email"].split("@")[0].replace(".", "_")
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            email_prefix = user_data["email"].replace("@", "_at_").replace(".", "_")
             dest_name = f"{email_prefix}_{timestamp}_{filename}"
             dest_path = f"{VOLUME_PATH}/{dest_name}"
-            w.files.upload(dest_path, decoded)
-            results.append(dbc.Alert(f"Uploaded: {filename}", color="success", dismissable=True, className="mb-2"))
+            w.files.upload(dest_path, decoded, overwrite=True)
+            results.append(dbc.Alert(f"Uploaded: {filename}", color="success", className="py-2 px-3", style={"borderRadius": "10px"}))
         except Exception as e:
-            results.append(dbc.Alert(f"Failed: {filename} - {str(e)}", color="danger", dismissable=True, className="mb-2"))
-    return html.Div(results)
+            results.append(dbc.Alert(f"Failed: {filename} - {str(e)}", color="danger", className="py-2 px-3", style={"borderRadius": "10px"}))
+    return results
 
 
-@callback(
-    Output("submissions-table", "children"),
-    Input("refresh-submissions", "n_clicks"),
-    prevent_initial_call=False
-)
-def refresh_submissions(n):
-    user = get_current_user()
-    df = get_submitted_documents(user["email"])
+@callback(Output("submissions-table", "children"), Input("refresh-interval", "n_intervals"), State("user-store", "data"))
+def refresh_submissions(n, user_data):
+    df = get_submitted_documents(user_data["email"])
     if df.empty:
-        return html.P("No submissions found.", style={"color": "rgba(255,255,255,0.5)", "textAlign": "center", "padding": "20px"})
-    return dash_table.DataTable(
-        data=df.to_dict("records"),
-        columns=[{"name": c, "id": c} for c in df.columns],
-        style_table={"overflowX": "auto"},
-        style_header={"backgroundColor": "rgba(0,180,216,0.1)", "color": "white", "fontWeight": "600", "border": "none"},
-        style_cell={"backgroundColor": "transparent", "color": "white", "border": "1px solid rgba(255,255,255,0.05)", "padding": "10px"},
-        style_data_conditional=[{"if": {"filter_query": "{Status} = PROCESSED"}, "color": "#00e676"}],
-        page_size=10
-    )
+        return html.Div([html.I(className="bi bi-inbox", style={"fontSize": "2.5rem", "color": "rgba(255,255,255,0.2)"}), html.P("No documents submitted yet", className="mt-2", style={"color": "rgba(255,255,255,0.4)"})], style={"textAlign": "center", "padding": "60px 0"})
+    return dash_table.DataTable(data=df.to_dict("records"), columns=[{"name": c, "id": c} for c in df.columns], style_table={"overflowX": "auto"}, style_header={"background": "rgba(0,180,216,0.15)", "color": "white", "fontWeight": "600", "border": "none"}, style_cell={"background": "transparent", "color": "white", "border": "1px solid rgba(255,255,255,0.05)", "fontSize": "0.85rem", "padding": "10px"}, style_data_conditional=[{"if": {"filter_query": "{Status} = PROCESSED"}, "color": "#00e676", "fontWeight": "600"}, {"if": {"filter_query": "{Status} = PENDING"}, "color": "#ffab40", "fontWeight": "600"}], page_size=8)
 
 
-@callback(
-    Output("pipeline-status", "children"),
-    Input("trigger-pipeline", "n_clicks"),
-    prevent_initial_call=True
-)
+@callback(Output("run-trigger-status", "children"), Input("run-pipeline-btn", "n_clicks"), prevent_initial_call=True)
 def trigger_pipeline(n):
     if not JOB_ID:
-        return dbc.Alert("JOB_ID not configured", color="warning")
+        return dbc.Alert("JOB_ID not configured", color="warning", style={"borderRadius": "10px"})
     try:
         run = w.jobs.run_now(job_id=int(JOB_ID))
-        return dbc.Alert(f"Pipeline triggered! Run ID: {run.run_id}", color="success", dismissable=True)
+        return dbc.Alert(f"Pipeline triggered! Run ID: {run.run_id}", color="success", style={"borderRadius": "10px"}, duration=6000)
     except Exception as e:
-        return dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
+        return dbc.Alert(f"Failed: {str(e)}", color="danger", style={"borderRadius": "10px"})
 
 
-@callback(
-    Output("runs-container", "children"),
-    Input("refresh-runs", "n_clicks"),
-    prevent_initial_call=True
-)
-def refresh_runs(n):
+@callback(Output("runs-table", "children"), Input("refresh-interval", "n_intervals"), Input("run-trigger-status", "children"))
+def refresh_runs(n, _):
     runs = get_job_runs()
     if not runs:
-        return [html.P("No runs found.", style={"color": "rgba(255,255,255,0.5)", "textAlign": "center"})]
-    run_cards = []
+        return html.Div([html.I(className="bi bi-clock-history", style={"fontSize": "2.5rem", "color": "rgba(255,255,255,0.2)"}), html.P("No pipeline runs yet", className="mt-2", style={"color": "rgba(255,255,255,0.4)"})], style={"textAlign": "center", "padding": "60px 0"})
+    cards = []
     for run in runs:
-        badge_class = "status-badge-success" if run["status"] == "Success" else "status-badge-failed" if run["status"] == "Failed" else "status-badge-pending"
-        run_cards.append(dbc.Card([dbc.CardBody([
-            html.Div([
-                html.Div([html.Span(f"Run #{run['run_id']}", style={"fontWeight": "600"}), html.Span(run["status"], className=badge_class, style={"marginLeft": "12px"})]),
-                html.Small(run["start_time"], style={"color": "rgba(255,255,255,0.5)"})
-            ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
-            html.Div([
-                html.Small(f"Duration: {run['duration']}", style={"color": "rgba(255,255,255,0.6)"}) if run["duration"] else html.Span(),
-                html.Small(run["failure_reason"], style={"color": "#ff5252", "marginLeft": "12px"}) if run["failure_reason"] else html.Span()
-            ], className="mt-2")
-        ])], className="glass-card mb-2"))
-    return run_cards
+        badge_class = "status-badge-success" if run["status"] == "Success" else ("status-badge-failed" if run["status"] == "Failed" else "status-badge-pending")
+        card = dbc.Card([dbc.CardBody([html.Div([html.Div([html.Span(f"Run #{run['run_id']}", style={"fontWeight": "600"}), html.Span(run["status"], className=badge_class, style={"marginLeft": "12px"})]), html.Small(run["start_time"], style={"color": "rgba(255,255,255,0.5)"})], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}), html.Div([html.Small(f"Duration: {run['duration']}", style={"color": "rgba(255,255,255,0.5)"}), html.Small(f" | {run['failure_reason']}", style={"color": "#ff5252"}) if run["failure_reason"] else None], className="mt-1")])], className="glass-card mb-2")
+        cards.append(card)
+    return cards
 
 
-@callback(
-    Output("chat-messages", "children"),
-    Output("chat-history", "data"),
-    Output("chat-input", "value"),
-    Input("send-chat", "n_clicks"),
-    State("chat-input", "value"),
-    State("chat-history", "data"),
-    prevent_initial_call=True
-)
-def handle_chat(n_clicks, user_input, history):
-    if not user_input or not user_input.strip():
+@callback(Output("chat-messages", "children"), Output("conversation-store", "data"), Output("chat-input", "value"), Input("send-btn", "n_clicks"), Input("chat-input", "n_submit"), State("chat-input", "value"), State("conversation-store", "data"), State("chat-messages", "children"), prevent_initial_call=True)
+def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
+    if not message or not message.strip():
         return no_update, no_update, no_update
     if not GENIE_SPACE_ID:
-        history = history or []
-        history.append({"role": "user", "content": user_input})
-        history.append({"role": "genie", "content": "GENIE_SPACE_ID is not configured. Please set it in the app environment variables."})
-        bubbles = []
-        for msg in history:
-            css_class = "chat-bubble-user" if msg["role"] == "user" else "chat-bubble-genie"
-            bubbles.append(html.Div(msg["content"], className=css_class))
-        return bubbles, history, ""
-
-    history = history or []
-    history.append({"role": "user", "content": user_input})
-
-    # Start Genie conversation
+        current_messages.append(html.Div([html.Div(message, className="chat-bubble-user"), html.Div("GENIE_SPACE_ID not configured.", className="chat-bubble-genie")]))
+        return current_messages, conv_data, ""
+    current_messages.append(html.Div(html.Div(message, className="chat-bubble-user"), style={"display": "flex", "justifyContent": "flex-end"}))
     try:
-        conv_resp = w.api_client.do("POST", f"/api/2.0/genie/spaces/{GENIE_SPACE_ID}/start-conversation", body={"content": user_input})
-        conversation_id = conv_resp.get("conversation_id", "")
-        message_id = conv_resp.get("message_id", "")
-        if not conversation_id or not message_id:
-            history.append({"role": "genie", "content": "Failed to start conversation with Genie."})
+        conversation_id = conv_data.get("conversation_id")
+        if not conversation_id:
+            resp = w.api_client.do("POST", f"/api/2.0/genie/spaces/{GENIE_SPACE_ID}/start-conversation", body={"content": message})
+            conversation_id = resp["conversation_id"]
+            message_id = resp["message_id"]
         else:
-            result = poll_genie_response(GENIE_SPACE_ID, conversation_id, message_id)
-            if "error" in result:
-                history.append({"role": "genie", "content": f"Error: {result['error']}"})
+            resp = w.api_client.do("POST", f"/api/2.0/genie/spaces/{GENIE_SPACE_ID}/conversations/{conversation_id}/messages", body={"content": message})
+            message_id = resp["message_id"]
+        conv_data["conversation_id"] = conversation_id
+        result = poll_genie_response(GENIE_SPACE_ID, conversation_id, message_id)
+        if "error" in result:
+            current_messages.append(html.Div(f"Error: {result['error']}", className="chat-bubble-genie"))
+        else:
+            attachments = result.get("attachments", [])
+            reply_parts = []
+            text_content = result.get("content", "")
+            if text_content:
+                reply_parts.append(html.P(text_content))
+            for att in attachments:
+                if att.get("type") == "QUERY_RESULT":
+                    query = att.get("query", {}).get("sql", "")
+                    if query:
+                        reply_parts.append(html.Details([html.Summary("SQL Query", style={"cursor": "pointer", "color": "#00b4d8"}), html.Code(query, style={"fontSize": "0.8rem", "whiteSpace": "pre-wrap"})], className="mt-2"))
+                    columns = att.get("query", {}).get("columns", [])
+                    rows = att.get("query", {}).get("rows", [])
+                    if columns and rows:
+                        df = pd.DataFrame(rows, columns=[c.get("name", "") for c in columns])
+                        reply_parts.append(dash_table.DataTable(data=df.head(20).to_dict("records"), columns=[{"name": c, "id": c} for c in df.columns], style_header={"background": "rgba(0,180,216,0.15)", "color": "white", "fontWeight": "600"}, style_cell={"background": "transparent", "color": "white", "border": "1px solid rgba(255,255,255,0.05)", "fontSize": "0.8rem"}, style_table={"marginTop": "10px"}))
+            if reply_parts:
+                current_messages.append(html.Div(reply_parts, className="chat-bubble-genie"))
             else:
-                # Extract response text
-                attachments = result.get("attachments", [])
-                answer_text = ""
-                for att in attachments:
-                    if att.get("text", {}).get("content"):
-                        answer_text += att["text"]["content"] + "\n"
-                    elif att.get("query", {}).get("description"):
-                        answer_text += att["query"]["description"] + "\n"
-                if not answer_text:
-                    answer_text = "Query completed. Check the Genie Space for detailed results."
-                history.append({"role": "genie", "content": answer_text.strip()})
+                current_messages.append(html.Div("I processed your question but received no detailed response. Try rephrasing.", className="chat-bubble-genie"))
     except Exception as e:
-        history.append({"role": "genie", "content": f"Error: {str(e)}"})
-
-    bubbles = []
-    for msg in history:
-        css_class = "chat-bubble-user" if msg["role"] == "user" else "chat-bubble-genie"
-        bubbles.append(html.Div(msg["content"], className=css_class))
-    return bubbles, history, ""
+        current_messages.append(html.Div(f"Error: {str(e)}", className="chat-bubble-genie"))
+    return current_messages, conv_data, ""
 
 
 if __name__ == "__main__":

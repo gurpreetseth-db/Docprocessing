@@ -24,7 +24,7 @@ CREATE OR REFRESH STREAMING TABLE document_submissions
 COMMENT "Tracks document submissions and their processing status"
 AS SELECT
   path AS file_path,
-  regexp_extract(path, '.*/([^/]+), 1) AS file_name,
+  regexp_extract(path, '.*/([^/]+)$', 1) AS file_name,
   regexp_extract(path, '.*/([^_]+)_.*', 1) AS submitter_email,
   length AS file_size,
   modificationTime AS submission_time,
