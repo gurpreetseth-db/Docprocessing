@@ -1,0 +1,35 @@
+# =============================================================================
+# Lakeflow Declarative Pipeline — Bronze -> Silver -> Gold
+# =============================================================================
+# Serverless pipeline that:
+#   * Bronze: Auto Loader ingests PDFs (bare names -> default schema = Bronze)
+#   * Silver: ai_parse_document + ai_extract (fully-qualified -> Silver schema)
+#   * Gold:   materialized views for Genie/analytics (fully-qualified -> Gold)
+#
+# The catalog/schema below set the DEFAULT target for bare-named tables in
+# 01_bronze_ingestion.sql. Silver/Gold SQL address their schemas explicitly.
+# =============================================================================
+resources:
+  pipelines:
+    doc_processing_pipeline:
+      name: "[${bundle.target}] Doc Processing - Service Plan Intelligence"
+      catalog: ${var.catalog}
+      schema: ${var.bronze_schema}
+      serverless: true
+      channel: CURRENT
+      photon: true
+      continuous: false
+      development: true
+      libraries:
+        - notebook:
+            path: ../src/pipeline/01_bronze_ingestion.sql
+        - notebook:
+            path: ../src/pipeline/02_silver_processing.sql
+        - notebook:
+            path: ../src/pipeline/03_gold_aggregations.sql
+      configuration:
+        catalog: ${var.catalog}
+        bronze_schema: ${var.bronze_schema}
+        silver_schema: ${var.silver_schema}
+        gold_schema: ${var.gold_schema}
+        volume_name: ${var.volume_name}

@@ -1,0 +1,46 @@
+# =============================================================================
+# Jobs
+# =============================================================================
+#  * doc_processing_job   -> runs the Lakeflow pipeline; scheduled every 4h AND
+#                            triggered on-demand from the app's "Pipeline Ops"
+#                            tab (this job's id is passed to the app as JOB_ID).
+#  * doc_processing_setup -> one-off: creates catalog/schemas/volume/users and
+#                            generates the sample Service Plan PDFs. Run once
+#                            after first deploy (or when you want fresh data).
+# =============================================================================
+resources:
+  jobs:
+    doc_processing_job:
+      name: "[${bundle.target}] Doc Processing - Scheduled Pipeline"
+      tags:
+        project: doc-processing
+      schedule:
+        quartz_cron_expression: "0 0 */4 * * ?"   # every 4 hours
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: run_document_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.doc_processing_pipeline.id}
+      queue:
+        enabled: true
+
+    doc_processing_setup:
+      name: "[${bundle.target}] Doc Processing - Setup & Sample Data"
+      tags:
+        project: doc-processing
+      tasks:
+        - task_key: generate_sample_data
+          notebook_task:
+            notebook_path: ../src/setup/generate_sample_data.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              gold_schema: ${var.gold_schema}
+              volume_name: ${var.volume_name}
+              num_users: "10"
+              num_documents: "20"
+          # Serverless notebook compute (no cluster block needed)
+      queue:
+        enabled: true

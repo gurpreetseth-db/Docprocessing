@@ -1,0 +1,53 @@
+# =============================================================================
+# Doc Processing — Central Configuration
+# =============================================================================
+# Single place to change environment-specific names. Values here are mirrored
+# into databricks.yml `variables` (bundle deploy reads variables from there),
+# and are also passed to the setup job + app as parameters/env vars.
+#
+# To point the demo at a different workspace / naming scheme, edit the values
+# below AND the matching `variables:` defaults in databricks.yml, then run:
+#   databricks bundle validate -t dev -p docprocessing
+#   databricks bundle deploy   -t dev -p docprocessing
+# =============================================================================
+
+environment:
+  # Logical environment name (maps to a bundle target in databricks.yml)
+  name: dev
+  # Databricks workspace host for this environment
+  host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
+  # CLI auth profile to use (see `databricks auth profiles`)
+  profile: docprocessing
+
+# Unity Catalog naming
+catalog: DocProcessing
+schemas:
+  bronze: DocProcess_Bronze
+  silver: DocProcess_Silver
+  gold: DocProcess_Gold
+
+# UC Volume where incoming Service Plan PDFs land (Auto Loader source)
+volume_name: InputPDFs
+
+# Genie
+genie:
+  space_name: "Doc Processing Helper"
+  # Populated after the Genie space is created in the workspace UI/API.
+  # Paste the space id here and expose it to the app via app.yaml env.
+  space_id: ""
+
+# Databricks App
+app:
+  name: doc-processing-app
+  display_name: "Service Plan Document Intelligence"
+
+# Sample-data volumes for the setup job
+sample_data:
+  num_users: 10
+  num_documents: 20
+
+# Pipeline scheduling
+schedule:
+  # Cron for the scheduled processing job (quartz cron, UTC)
+  processing_cron: "0 0 */4 * * ?"   # every 4 hours
+  timezone: "UTC"

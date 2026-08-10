@@ -1,0 +1,40 @@
+command:
+  - "python"
+  - "app.py"
+
+env:
+  # --- Injected automatically by the Databricks Apps runtime ---
+  - name: DATABRICKS_HOST
+    description: "Databricks workspace host URL (provided by the runtime)"
+  - name: DATABRICKS_APP_PORT
+    value: "8050"
+    description: "Port for the Dash app (default 8050)"
+
+  # --- Wired from the bundle app-resource (see resources/app.yml) ---
+  - name: JOB_ID
+    valueFrom: "app-job"
+    description: "Doc processing job id — used by the Pipeline Ops tab to trigger runs"
+
+  # --- Catalog / schema names (literal defaults; keep in sync with config.yml) ---
+  - name: CATALOG
+    value: "DocProcessing"
+  - name: BRONZE_SCHEMA
+    value: "DocProcess_Bronze"
+  - name: SILVER_SCHEMA
+    value: "DocProcess_Silver"
+  - name: GOLD_SCHEMA
+    value: "DocProcess_Gold"
+
+  # --- Set these after deploy (ids unknown at build time) ---
+  # SQL Warehouse id the app queries submissions/runs with:
+  - name: DATABRICKS_WAREHOUSE_ID
+    value: ""
+    description: "SQL Warehouse id (set in App UI -> Environment once known)"
+  # Genie space id for the 'Doc Processing Helper' space:
+  - name: GENIE_SPACE_ID
+    value: ""
+    description: "Genie space id (set after creating the Genie space)"
+  # Pipeline id (optional; for display/links):
+  - name: PIPELINE_ID
+    value: ""
+    description: "Lakeflow pipeline id (optional)"

@@ -1,0 +1,35 @@
+bundle:
+  name: doc-processing-bundle
+
+variables:
+  catalog:
+    default: DocProcessing
+  bronze_schema:
+    default: DocProcess_Bronze
+  silver_schema:
+    default: DocProcess_Silver
+  gold_schema:
+    default: DocProcess_Gold
+  volume_name:
+    default: InputPDFs
+  genie_space_name:
+    default: "Doc Processing Helper"
+  genie_space_id:
+    description: "Genie space id (populate after creating the 'Doc Processing Helper' space)"
+    default: ""
+  warehouse_id:
+    description: "SQL Warehouse id the app uses to query submissions/runs"
+    default: ""
+  app_name:
+    default: doc-processing-app
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
+
