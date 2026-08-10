@@ -22,9 +22,5 @@ targets:
   dev:
     mode: development
     default: true
-    workspace:
-      host: ${workspace.host}
   prod:
     mode: production
-    workspace:
-      host: ${workspace.host}
