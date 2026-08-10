@@ -1,0 +1,17 @@
+resources:
+  jobs:
+    doc_processing_job:
+      name: "Document Processing Job"
+      description: "Scheduled job to process incoming insurance documents"
+      tasks:
+        - task_key: run_doc_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.doc_processing_pipeline.id}
+            full_refresh: false
+      schedule:
+        quartz_cron_expression: "0 0 */4 * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+      tags:
+        project: "doc-processing"
+        team: "insurance-ops"

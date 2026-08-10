@@ -1,0 +1,30 @@
+bundle:
+  name: doc-processing-bundle
+
+variables:
+  catalog:
+    default: DocProcessing
+  bronze_schema:
+    default: DocProcess_Bronze
+  silver_schema:
+    default: DocProcess_Silver
+  gold_schema:
+    default: DocProcess_Gold
+  volume_name:
+    default: InputPDFs
+  genie_space_name:
+    default: "Doc Processing Helper"
+
+include:
+  - resources/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: ${workspace.host}
+  prod:
+    mode: production
+    workspace:
+      host: ${workspace.host}

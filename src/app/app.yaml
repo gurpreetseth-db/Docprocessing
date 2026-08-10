@@ -1,0 +1,14 @@
+command:
+  - "python"
+  - "app.py"
+env:
+  - name: DATABRICKS_HOST
+    description: "Databricks workspace host URL"
+  - name: GENIE_SPACE_ID
+    description: "Genie Space ID for Doc Processing Helper"
+  - name: JOB_ID
+    description: "Job ID for the document processing pipeline job"
+  - name: PIPELINE_ID
+    description: "Pipeline ID for the SDP pipeline"
+  - name: DATABRICKS_WAREHOUSE_ID
+    description: "SQL Warehouse ID for querying submission data"

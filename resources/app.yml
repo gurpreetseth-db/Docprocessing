@@ -1,0 +1,14 @@
+resources:
+  apps:
+    doc_processing_app:
+      name: doc-processing-${workspace.current_user.domain_friendly_name}
+      description: "Insurance Document Processing Portal"
+      source_code_path: ../src/app
+      resources:
+        - name: doc-processing-sql-warehouse
+          sql_warehouse: {}
+        - name: doc-processing-serving-endpoint
+          serving_endpoint: {}
+      permissions:
+        - user_name: users
+          level: CAN_USE
