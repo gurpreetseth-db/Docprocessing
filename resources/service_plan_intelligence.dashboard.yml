@@ -1,0 +1,6 @@
+resources:
+  dashboards:
+    service_plan_intelligence:
+      display_name: "Service Plan Intelligence"
+      warehouse_id: d52fd76cb4721252
+      file_path: ../src/service_plan_intelligence.lvdash.json

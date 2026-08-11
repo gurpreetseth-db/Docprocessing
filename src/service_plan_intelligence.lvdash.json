@@ -1,0 +1,1149 @@
+{
+  "datasets": [
+    {
+      "name": "dim_client",
+      "displayName": "Client Dimension",
+      "catalog": "docprocessing",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "nhi_number",
+            "name": "nhi_number"
+          },
+          {
+            "expr": "client_first_name",
+            "name": "client_first_name"
+          },
+          {
+            "expr": "client_last_name",
+            "name": "client_last_name"
+          },
+          {
+            "expr": "gender",
+            "name": "gender"
+          },
+          {
+            "expr": "date_of_birth",
+            "name": "date_of_birth"
+          },
+          {
+            "expr": "region",
+            "name": "region"
+          },
+          {
+            "expr": "vulnerability_tier",
+            "name": "vulnerability_tier"
+          },
+          {
+            "expr": "first_referral_date",
+            "name": "first_referral_date"
+          },
+          {
+            "expr": "latest_service_start_date",
+            "name": "latest_service_start_date"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "COUNT(nhi_number)",
+            "name": "total_clients"
+          },
+          {
+            "expr": "AVG(plan_count)",
+            "name": "avg_plan_count"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.dim_client",
+        "version": "1.1"
+      }
+    },
+    {
+      "name": "fact_service_plan",
+      "displayName": "Service Plan Fact",
+      "catalog": "docprocessing",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "plan_id",
+            "name": "plan_id"
+          },
+          {
+            "expr": "nhi_number",
+            "name": "nhi_number"
+          },
+          {
+            "expr": "care_coordinator",
+            "name": "care_coordinator"
+          },
+          {
+            "expr": "funder",
+            "name": "funder"
+          },
+          {
+            "expr": "contract_type",
+            "name": "contract_type"
+          },
+          {
+            "expr": "package_of_care",
+            "name": "package_of_care"
+          },
+          {
+            "expr": "vulnerability_tier",
+            "name": "vulnerability_tier"
+          },
+          {
+            "expr": "referral_date",
+            "name": "referral_date"
+          },
+          {
+            "expr": "service_start_date",
+            "name": "service_start_date"
+          },
+          {
+            "expr": "review_frequency",
+            "name": "review_frequency"
+          },
+          {
+            "expr": "region",
+            "name": "region"
+          },
+          {
+            "expr": "submitter_email",
+            "name": "submitter_email"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "COUNT(plan_id)",
+            "name": "total_plans"
+          },
+          {
+            "expr": "AVG(days_referral_to_start)",
+            "name": "avg_days_referral_to_start"
+          },
+          {
+            "expr": "SUM(weekly_care_hours)",
+            "name": "total_weekly_care_hours"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.fact_service_plan",
+        "version": "1.1"
+      }
+    },
+    {
+      "name": "fact_risk_profile",
+      "displayName": "Risk Profile",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "nhi_number",
+            "name": "nhi_number"
+          },
+          {
+            "expr": "risk_flag",
+            "name": "risk_flag"
+          },
+          {
+            "expr": "vulnerability_tier",
+            "name": "vulnerability_tier"
+          },
+          {
+            "expr": "region",
+            "name": "region"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "SUM(plan_count)",
+            "name": "total_plan_count"
+          },
+          {
+            "expr": "COUNT_IF(has_incomplete_handling_plan = true)",
+            "name": "incomplete_handling_plans"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.fact_risk_profile",
+        "version": "1.1"
+      }
+    },
+    {
+      "name": "agg_intake_funnel",
+      "displayName": "Intake Funnel",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "referral_month",
+            "name": "referral_month"
+          },
+          {
+            "expr": "region",
+            "name": "region"
+          },
+          {
+            "expr": "funder",
+            "name": "funder"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "SUM(plans_referred)",
+            "name": "total_plans_referred"
+          },
+          {
+            "expr": "SUM(plans_started)",
+            "name": "total_plans_started"
+          },
+          {
+            "expr": "AVG(avg_days_referral_to_start)",
+            "name": "avg_days_referral_to_start"
+          },
+          {
+            "expr": "AVG(avg_weekly_hours)",
+            "name": "avg_weekly_hours"
+          },
+          {
+            "expr": "SUM(total_weekly_hours)",
+            "name": "total_weekly_hours"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.agg_intake_funnel",
+        "version": "1.1"
+      }
+    },
+    {
+      "name": "fact_service_demand",
+      "displayName": "Service Demand by Region",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "service",
+            "name": "service"
+          },
+          {
+            "expr": "region",
+            "name": "region"
+          },
+          {
+            "expr": "funder",
+            "name": "funder"
+          },
+          {
+            "expr": "referral_month",
+            "name": "referral_month"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "SUM(num_plans)",
+            "name": "total_plans"
+          },
+          {
+            "expr": "SUM(total_weekly_hours)",
+            "name": "total_weekly_hours"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.fact_service_demand_by_region",
+        "version": "1.1"
+      }
+    },
+    {
+      "name": "dim_care_coordinator",
+      "displayName": "Care Coordinator Dimension",
+      "config": {
+        "dimensions": [
+          {
+            "expr": "care_coordinator",
+            "name": "care_coordinator"
+          },
+          {
+            "expr": "primary_region",
+            "name": "primary_region"
+          }
+        ],
+        "measures": [
+          {
+            "expr": "SUM(active_client_count)",
+            "name": "total_active_clients"
+          },
+          {
+            "expr": "SUM(total_weekly_hours_assigned)",
+            "name": "total_weekly_hours_assigned"
+          },
+          {
+            "expr": "SUM(total_plans_managed)",
+            "name": "total_plans_managed"
+          }
+        ],
+        "source": "docprocessing.docprocess_gold.dim_care_coordinator",
+        "version": "1.1"
+      }
+    }
+  ],
+  "relationshipGraphs": [
+    {
+      "sources": [
+        {
+          "name": "Client_Dimension",
+          "datasetName": "dim_client"
+        },
+        {
+          "name": "Service_Plan_Fact",
+          "datasetName": "fact_service_plan"
+        },
+        {
+          "name": "Risk_Profile",
+          "datasetName": "fact_risk_profile"
+        },
+        {
+          "name": "Intake_Funnel",
+          "datasetName": "agg_intake_funnel"
+        },
+        {
+          "name": "Service_Demand_by_Region",
+          "datasetName": "fact_service_demand"
+        },
+        {
+          "name": "Care_Coordinator_Dimension",
+          "datasetName": "dim_care_coordinator"
+        }
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "12d98bf9",
+      "displayName": "Executive Overview",
+      "layout": [
+        {
+          "widget": {
+            "name": "counter_clients",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dim_client",
+                  "fields": [
+                    {
+                      "name": "measure(total_clients)",
+                      "expression": "MEASURE(`total_clients`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(total_clients)",
+                  "rowNumber": 0
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Clients"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_plans",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "fact_service_plan",
+                  "fields": [
+                    {
+                      "name": "measure(total_plans)",
+                      "expression": "MEASURE(`total_plans`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(total_plans)",
+                  "rowNumber": 0
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Plans"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_avg_days",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agg_intake_funnel",
+                  "fields": [
+                    {
+                      "name": "measure(avg_days_referral_to_start)",
+                      "expression": "MEASURE(`avg_days_referral_to_start`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(avg_days_referral_to_start)",
+                  "rowNumber": 0
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Avg Days Referral to Start"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "counter_hours",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "fact_service_plan",
+                  "fields": [
+                    {
+                      "name": "measure(total_weekly_care_hours)",
+                      "expression": "MEASURE(`total_weekly_care_hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "value": {
+                  "fieldName": "measure(total_weekly_care_hours)",
+                  "rowNumber": 0
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Total Weekly Care Hours"
+              },
+              "version": 2,
+              "widgetType": "counter"
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 0,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "vulnerability_pie",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dim_client",
+                  "fields": [
+                    {
+                      "name": "measure(total_clients)",
+                      "expression": "MEASURE(`total_clients`)"
+                    },
+                    {
+                      "name": "vulnerability_tier",
+                      "expression": "`vulnerability_tier`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "angle": {
+                  "displayName": "total_clients",
+                  "fieldName": "measure(total_clients)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "displayName": "vulnerability_tier",
+                  "fieldName": "vulnerability_tier",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Clients by Vulnerability Tier"
+              },
+              "version": 3,
+              "widgetType": "pie"
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 3,
+            "width": 4,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "hours_by_region",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "agg_intake_funnel",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "measure(total_weekly_hours)",
+                      "expression": "MEASURE(`total_weekly_hours`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "region",
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": "region",
+                  "fieldName": "region",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": "total_weekly_hours",
+                  "fieldName": "measure(total_weekly_hours)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly Hours by Region"
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 9,
+            "width": 12,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_region",
+            "queries": [
+              {
+                "name": "dashboards/01f195cb1f691be9b3d7d23631d4058a/datasets/01f195cb1f77196a9a199a28f4af9dee_region",
+                "query": {
+                  "datasetName": "fact_service_plan",
+                  "fields": [
+                    {
+                      "name": "region",
+                      "expression": "`region`"
+                    },
+                    {
+                      "name": "region_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Region",
+                "version": 1
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "region",
+                    "queryName": "dashboards/01f195cb1f691be9b3d7d23631d4058a/datasets/01f195cb1f77196a9a199a28f4af9dee_region"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_funder",
+            "queries": [
+              {
+                "name": "dashboards/01f195cb1f691be9b3d7d23631d4058a/datasets/01f195cb1f77196a9a199a28f4af9dee_funder",
+                "query": {
+                  "datasetName": "fact_service_plan",
+                  "fields": [
+                    {
+                      "name": "funder",
+                      "expression": "`funder`"
+                    },
+                    {
+                      "name": "funder_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Funder",
+                "version": 1
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "funder",
+                    "queryName": "dashboards/01f195cb1f691be9b3d7d23631d4058a/datasets/01f195cb1f77196a9a199a28f4af9dee_funder"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 14,
+            "width": 6,
+            "height": 1
+          }
+        },
+        {
+          "widget": {
+            "name": "intake_trend",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "monthly(Intake_Funnel__referral_month)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `Intake_Funnel`.`referral_month`)"
+                    },
+                    {
+                      "name": "measure(Intake_Funnel__total_plans_referred)",
+                      "expression": "MEASURE(`Intake_Funnel`.`total_plans_referred`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "title": "Intake Funnel by Month",
+                "showTitle": true
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(Intake_Funnel__referral_month)",
+                  "displayName": "Month",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Intake_Funnel__total_plans_referred)",
+                  "displayName": "total_plans_referred",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 3,
+            "width": 8,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "service_demand_risk",
+      "displayName": "Service Demand & Risk",
+      "layout": [
+        {
+          "widget": {
+            "name": "demand_stacked",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "fields": [
+                    {
+                      "name": "Service_Demand_by_Region__region",
+                      "expression": "`Service_Demand_by_Region`.`region`"
+                    },
+                    {
+                      "name": "Service_Demand_by_Region__service",
+                      "expression": "`Service_Demand_by_Region`.`service`"
+                    },
+                    {
+                      "name": "measure(Service_Demand_by_Region__total_plans)",
+                      "expression": "MEASURE(`Service_Demand_by_Region`.`total_plans`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "title": "Service Demand by Region",
+                "version": 1
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "Service_Demand_by_Region__service",
+                  "displayName": "service",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "measure(Service_Demand_by_Region__total_plans)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "color": {
+                  "fieldName": "Service_Demand_by_Region__region",
+                  "displayName": "service",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "fact_risk_profile",
+                  "fields": [
+                    {
+                      "name": "risk_flag",
+                      "expression": "`risk_flag`"
+                    },
+                    {
+                      "name": "measure(total_plan_count)",
+                      "expression": "MEASURE(`total_plan_count`)"
+                    },
+                    {
+                      "name": "measure(incomplete_handling_plans)",
+                      "expression": "MEASURE(`incomplete_handling_plans`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "risk_flag"
+                  },
+                  {
+                    "fieldName": "measure(total_plan_count)"
+                  },
+                  {
+                    "fieldName": "measure(incomplete_handling_plans)"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Top Risk Flags"
+              },
+              "version": 2,
+              "widgetType": "table"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "risk_by_tier",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "fact_risk_profile",
+                  "fields": [
+                    {
+                      "name": "vulnerability_tier",
+                      "expression": "`vulnerability_tier`"
+                    },
+                    {
+                      "name": "risk_flag",
+                      "expression": "`risk_flag`"
+                    },
+                    {
+                      "name": "measure(total_plan_count)",
+                      "expression": "MEASURE(`total_plan_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "risk_flag",
+                  "fieldName": "vulnerability_tier",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": "risk_flag",
+                  "fieldName": "risk_flag",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": "total_plan_count",
+                  "fieldName": "measure(total_plan_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Risk Flags by Vulnerability Tier",
+                "version": 1
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 7
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "coordinator_workload",
+      "displayName": "Care Coordinator Workload",
+      "layout": [
+        {
+          "widget": {
+            "name": "coord_table",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dim_care_coordinator",
+                  "fields": [
+                    {
+                      "name": "care_coordinator",
+                      "expression": "`care_coordinator`"
+                    },
+                    {
+                      "name": "primary_region",
+                      "expression": "`primary_region`"
+                    },
+                    {
+                      "name": "measure(total_active_clients)",
+                      "expression": "MEASURE(`total_active_clients`)"
+                    },
+                    {
+                      "name": "measure(total_weekly_hours_assigned)",
+                      "expression": "MEASURE(`total_weekly_hours_assigned`)"
+                    },
+                    {
+                      "name": "measure(total_plans_managed)",
+                      "expression": "MEASURE(`total_plans_managed`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "care_coordinator"
+                  },
+                  {
+                    "fieldName": "primary_region"
+                  },
+                  {
+                    "fieldName": "measure(total_active_clients)"
+                  },
+                  {
+                    "fieldName": "measure(total_weekly_hours_assigned)"
+                  },
+                  {
+                    "fieldName": "measure(total_plans_managed)"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Coordinator Workload"
+              },
+              "version": 2,
+              "widgetType": "table"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "coord_hours_bar",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "dim_care_coordinator",
+                  "fields": [
+                    {
+                      "name": "care_coordinator",
+                      "expression": "`care_coordinator`"
+                    },
+                    {
+                      "name": "measure(total_weekly_hours_assigned)",
+                      "expression": "MEASURE(`total_weekly_hours_assigned`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "data": {
+                "queryName": "main_query"
+              },
+              "encodings": {
+                "color": {
+                  "displayName": "care_coordinator",
+                  "fieldName": "care_coordinator",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "x": {
+                  "displayName": "care_coordinator",
+                  "fieldName": "care_coordinator",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "displayName": "total_weekly_hours_assigned",
+                  "fieldName": "measure(total_weekly_hours_assigned)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Weekly Hours by Coordinator"
+              },
+              "version": 3,
+              "widgetType": "bar"
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 7,
+            "width": 12,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#F8F9FA",
+        "dark": "#1A1A2E"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FFFFFF",
+        "dark": "#16213E"
+      },
+      "visualizationColors": [
+        "#1B6B93",
+        "#4FC0D0",
+        "#A2DE96",
+        "#F7A072",
+        "#E84545",
+        "#7952B3",
+        "#2C3E50",
+        "#16A085",
+        "#F39C12",
+        "#8E44AD"
+      ],
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED",
+      "widgetPadding": 12,
+      "widgetMargin": 8,
+      "widgetCornerRadius": 8,
+      "widgetShadow": 15,
+      "fontSettings": {
+        "base": {
+          "fontFamily": "Inter"
+        }
+      }
+    },
+    "applyModeEnabled": false
+  }
+}
