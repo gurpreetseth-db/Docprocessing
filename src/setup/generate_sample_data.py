@@ -68,6 +68,14 @@ try:
 except:
     num_documents = 20
 
+# Optional: service principal / group that the Databricks App runs as. When set, we
+# grant it read access on the catalog so the app's queries (My Submissions, Pipeline
+# Ops) succeed — the app runs as its own SP, not as the deploying user.
+try:
+    app_principal = dbutils.widgets.get("app_principal")
+except:
+    app_principal = ""
+
 print(f"Configuration:")
 print(f"  Catalog: {catalog}")
 print(f"  Bronze Schema: {bronze_schema}")
@@ -91,6 +99,22 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{gold_schema}")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{volume_name}")
 
 print("Catalog, schemas, and volume created successfully!")
+
+# Grant the Databricks App's service principal read access so its queries work.
+# (The app runs as its own SP; without SELECT it silently returns empty tables.)
+if app_principal:
+    try:
+        spark.sql(f"GRANT USE CATALOG ON CATALOG {catalog} TO `{app_principal}`")
+        spark.sql(f"GRANT USE SCHEMA ON CATALOG {catalog} TO `{app_principal}`")
+        spark.sql(f"GRANT SELECT ON CATALOG {catalog} TO `{app_principal}`")
+        spark.sql(f"GRANT READ VOLUME ON CATALOG {catalog} TO `{app_principal}`")
+        spark.sql(f"GRANT WRITE VOLUME ON CATALOG {catalog} TO `{app_principal}`")
+        print(f"Granted read/volume access on {catalog} to app principal: {app_principal}")
+    except Exception as e:
+        print(f"WARNING: could not grant to app principal '{app_principal}': {e}")
+else:
+    print("No app_principal widget set — skipping app SP grants. "
+          "Set it (the app's service principal id) so the app can read the catalog.")
 
 # COMMAND ----------
 

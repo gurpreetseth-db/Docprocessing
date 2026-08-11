@@ -3,9 +3,8 @@ command:
   - "app.py"
 
 env:
-  # --- Injected automatically by the Databricks Apps runtime ---
-  - name: DATABRICKS_HOST
-    description: "Databricks workspace host URL (provided by the runtime)"
+  # DATABRICKS_HOST is injected automatically by the Apps runtime — do NOT declare it
+  # here (an env entry with neither value nor valueFrom is rejected at build time).
   - name: DATABRICKS_APP_PORT
     value: "8050"
     description: "Port for the Dash app (default 8050)"
@@ -28,13 +27,13 @@ env:
   # --- Set these after deploy (ids unknown at build time) ---
   # SQL Warehouse id the app queries submissions/runs with:
   - name: DATABRICKS_WAREHOUSE_ID
-    value: ""
+    value: "d52fd76cb4721252"
     description: "SQL Warehouse id (set in App UI -> Environment once known)"
   # Genie space id for the 'Doc Processing Helper' space:
   - name: GENIE_SPACE_ID
-    value: ""
+    value: "01f1951646ed1db09a7e272b6fe29894"
     description: "Genie space id (set after creating the Genie space)"
   # Pipeline id (optional; for display/links):
   - name: PIPELINE_ID
-    value: ""
+    value: "d0e78a7e-a32c-467a-bc3a-f06e748faf7a"
     description: "Lakeflow pipeline id (optional)"

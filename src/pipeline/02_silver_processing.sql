@@ -22,9 +22,11 @@ SELECT
   file_path,
   file_name,
   ingestion_timestamp,
-  concat_ws('\n', transform(parsed_struct:document:elements, e -> e:content::STRING)) AS parsed_text
+  concat_ws('\n', transform(parsed_struct:document:elements::ARRAY<VARIANT>, e -> e:content::STRING)) AS parsed_text
 FROM parsed
-WHERE parsed_struct:error_status IS NULL;
+-- ai_parse_document returns JSON null for error_status on success. A variant holding
+-- JSON null is NOT SQL NULL, so we must cast to string before the IS NULL test.
+WHERE parsed_struct:error_status::string IS NULL;
 
 -- COMMAND ----------
 
@@ -65,10 +67,10 @@ AS WITH extraction_result AS (
   FROM DocProcessing.DocProcess_Silver.parsed_documents pd
 )
 SELECT
-  file_path,
-  file_name,
+  extraction_result.file_path,
+  extraction_result.file_name,
   ds.submitter_email,
-  ingestion_timestamp,
+  extraction_result.ingestion_timestamp,
   extract_result:response:client_first_name::STRING AS client_first_name,
   extract_result:response:client_last_name::STRING AS client_last_name,
   extract_result:response:nhi_number::STRING AS nhi_number,
@@ -91,4 +93,6 @@ SELECT
   extract_result:response:manual_handling_plan_completed::BOOLEAN AS manual_handling_plan_completed
 FROM extraction_result
 LEFT JOIN document_submissions ds ON extraction_result.file_path = ds.file_path
-WHERE extract_result:error_status IS NULL;
+-- ai_extract reports failures via error_message (JSON null on success); cast to string
+-- so the IS NULL test is a real SQL NULL check rather than a variant-null comparison.
+WHERE extract_result:error_message::string IS NULL;

@@ -6,13 +6,12 @@ import base64
 from urllib.parse import quote
 
 import dash
-from dash import dcc, html, dash_table, callback, Input, Output, State, no_update, ctx
+from dash import dcc, html, dash_table, callback, Input, Output, State, no_update, ctx, ALL
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.jobs import RunLifeCycleState, RunResultState
-from databricks.sdk.service.genie import MessageStatus
 
 try:
     from flask import request
@@ -35,6 +34,33 @@ GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "DocProcess_Gold")
 VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/InputPDFs"
 
 w = WorkspaceClient()
+
+
+def run_sql(statement, warehouse_id=None):
+    """Execute SQL and BLOCK until it finishes, returning the StatementResponse.
+
+    execute_statement defaults to a short wait_timeout and 'continue on timeout',
+    so on a cold/busy warehouse it can return with state=RUNNING and result=None.
+    We request the max synchronous wait (50s) and then poll get_statement until the
+    statement reaches a terminal state, so callers always get the real result.
+    """
+    warehouse_id = warehouse_id or DATABRICKS_WAREHOUSE_ID
+    # on_wait_timeout defaults to CONTINUE, so a statement that outlives the 50s
+    # synchronous window keeps running and we pick it up via polling below.
+    resp = w.statement_execution.execute_statement(
+        warehouse_id=warehouse_id,
+        statement=statement,
+        wait_timeout="50s",
+    )
+    deadline = time.time() + 120
+    while time.time() < deadline:
+        state = getattr(getattr(resp, "status", None), "state", None)
+        state_str = getattr(state, "value", str(state)) if state is not None else ""
+        if state_str in ("SUCCEEDED", "FAILED", "CANCELED", "CLOSED"):
+            break
+        time.sleep(2)
+        resp = w.statement_execution.get_statement(resp.statement_id)
+    return resp
 
 
 def escape_sql_string(s):
@@ -167,6 +193,25 @@ body {
     margin-left: 16px;
     color: rgba(255, 255, 255, 0.7);
 }
+.submission-row-btn {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin-bottom: 10px;
+    color: #e0e0e0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-align: left;
+}
+.submission-row-btn:hover {
+    background: rgba(0, 180, 216, 0.1);
+    border-color: rgba(0, 180, 216, 0.4);
+    transform: translateY(-1px);
+}
 """
 
 # --- App Initialization ---
@@ -177,7 +222,7 @@ app = dash.Dash(
         "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
     ],
     suppress_callback_exceptions=True,
-    title="Service Plan Document Intelligence"
+    title="GENEVA HEALTHCARE Document Intelligence Portal"
 )
 
 # Inject custom CSS via index_string for reliable loading
@@ -242,9 +287,8 @@ def get_current_user():
     if user_name is None:
         try:
             email_escaped = escape_sql_string(user_email)
-            results = w.statement_execution.execute_statement(
-                warehouse_id=DATABRICKS_WAREHOUSE_ID,
-                statement=f"SELECT full_name FROM {CATALOG}.{BRONZE_SCHEMA}.users WHERE email = '{email_escaped}' LIMIT 1"
+            results = run_sql(
+                f"SELECT full_name FROM {CATALOG}.{BRONZE_SCHEMA}.users WHERE email = '{email_escaped}' LIMIT 1"
             )
             if results.result and results.result.data_array and len(results.result.data_array) > 0:
                 user_name = results.result.data_array[0][0]
@@ -266,35 +310,64 @@ def slug_to_email(slug):
     return slug.replace("_at_", "@").replace("_dot_", ".")
 
 
+def _run_submissions_query(where_clause):
+    """Run the submissions query with a real, derived status.
+
+    Bronze's processing_status is a constant ('INGESTED'), so it can't tell you
+    whether a document was actually processed. We derive the real status by
+    LEFT JOINing to the Silver extraction table: a file present there has been
+    fully parsed + extracted ('Processed'); otherwise it is still 'Pending'.
+    """
+    query = f"""
+    SELECT
+      s.file_name,
+      s.submission_time,
+      s.file_size,
+      CASE WHEN e.file_path IS NOT NULL THEN 'Processed' ELSE 'Pending' END AS status,
+      s.file_path
+    FROM {CATALOG}.{BRONZE_SCHEMA}.document_submissions s
+    LEFT JOIN {CATALOG}.{SILVER_SCHEMA}.service_plan_extracted e
+      ON s.file_path = e.file_path
+    {where_clause}
+    ORDER BY s.submission_time DESC
+    LIMIT 50
+    """
+    results = run_sql(query)
+    if results.result and results.result.data_array:
+        df = pd.DataFrame(
+            results.result.data_array,
+            columns=["File Name", "Submitted", "Size (bytes)", "Status", "file_path"]
+        )
+        df["Submitted"] = pd.to_datetime(df["Submitted"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+        return df
+    return pd.DataFrame(columns=["File Name", "Submitted", "Size (bytes)", "Status", "file_path"])
+
+
 def get_submitted_documents(user_email):
-    """Query bronze.document_submissions for current user's submissions."""
+    """Return the current user's submissions with a derived processing status.
+
+    Returns (df, scope) where scope is 'user' when the rows belong to the logged-in
+    user, or 'all' when we fell back to showing every recent submission (used when the
+    logged-in user has none of their own — e.g. a workspace admin viewing the demo).
+    """
+    empty = pd.DataFrame(columns=["File Name", "Submitted", "Size (bytes)", "Status", "file_path"])
     try:
         if not DATABRICKS_WAREHOUSE_ID:
-            return pd.DataFrame(columns=["File Name", "Submitted", "Size (bytes)", "Status"])
+            return empty, "user"
 
         email_escaped = escape_sql_string(user_email)
-        query = f"""
-        SELECT file_name, submission_time, file_size, processing_status
-        FROM {CATALOG}.{BRONZE_SCHEMA}.document_submissions
-        WHERE submitter_email = '{email_escaped}'
-        ORDER BY submission_time DESC
-        LIMIT 50
-        """
-        results = w.statement_execution.execute_statement(
-            warehouse_id=DATABRICKS_WAREHOUSE_ID,
-            statement=query
-        )
-        if results.result and results.result.data_array:
-            df = pd.DataFrame(
-                results.result.data_array,
-                columns=["File Name", "Submitted", "Size (bytes)", "Status"]
-            )
-            df["Submitted"] = pd.to_datetime(df["Submitted"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-            return df
+        df = _run_submissions_query(f"WHERE s.submitter_email = '{email_escaped}'")
+        if not df.empty:
+            return df, "user"
+
+        # Fallback: the logged-in user has no submissions of their own. Show all
+        # recent submissions so the demo is never blank.
+        df_all = _run_submissions_query("")
+        return df_all, "all"
     except Exception as e:
         print(f"Error fetching documents: {e}")
 
-    return pd.DataFrame(columns=["File Name", "Submitted", "Size (bytes)", "Status"])
+    return empty, "user"
 
 
 def get_job_runs_with_file_counts():
@@ -344,10 +417,7 @@ def get_job_runs_with_file_counts():
                     WHERE ingestion_timestamp >= '{from_ts}' AND ingestion_timestamp <= '{to_ts}'
                     ORDER BY ingestion_timestamp DESC
                     """
-                    results = w.statement_execution.execute_statement(
-                        warehouse_id=DATABRICKS_WAREHOUSE_ID,
-                        statement=query
-                    )
+                    results = run_sql(query)
                     if results.result and results.result.data_array:
                         files_processed = [row[0] for row in results.result.data_array]
                         files_count = len(files_processed)
@@ -376,47 +446,55 @@ def get_genie_response(space_id, conversation_id, message_id, timeout=60):
     Handles polling and returns parsed content + query results.
     """
     try:
-        # Get message (with polling via SDK)
+        # Get message (already resolved by *_and_wait, but re-fetch for full attachments)
         message = w.genie.get_message(space_id=space_id, conversation_id=conversation_id, message_id=message_id)
 
-        # Check message status
-        if message.status == MessageStatus.FAILED or message.status == MessageStatus.CANCELLED:
-            return {"error": "Message processing failed", "status": str(message.status)}
+        # Check message status. Compare by string value (the enum's module path has
+        # moved between databricks-sdk versions, so importing MessageStatus is fragile).
+        status_str = getattr(message.status, "value", str(message.status)).upper()
+        if "FAILED" in status_str or "CANCELLED" in status_str or "CANCELED" in status_str:
+            return {"error": "Message processing failed", "status": status_str}
 
-        # Extract text content
-        result = {
-            "content": message.content or "",
-            "status": str(message.status),
-            "attachments": []
-        }
+        result = {"text": "", "tables": []}
 
-        # Process attachments (query results, etc.)
-        if message.attachments:
-            for attachment in message.attachments:
-                att_dict = {}
-                if hasattr(attachment, 'type'):
-                    att_dict["type"] = str(attachment.type)
+        for attachment in (message.attachments or []):
+            # Text answer lives on attachment.text.content
+            text_att = getattr(attachment, "text", None)
+            if text_att is not None:
+                txt = getattr(text_att, "content", None)
+                if txt:
+                    result["text"] = (result["text"] + "\n\n" + txt).strip() if result["text"] else txt
 
-                # For QUERY_RESULT attachments, fetch the query result
-                if hasattr(attachment, 'query_id') and attachment.query_id:
+            # Query answer: attachment.query holds the SQL Genie generated. Rather than
+            # depend on the version-specific Genie query-result endpoint, we re-run the
+            # SQL on the warehouse via the stable statement_execution API.
+            query_att = getattr(attachment, "query", None)
+            if query_att is not None:
+                sql_text = getattr(query_att, "query", "") or ""
+                table = {
+                    "sql": sql_text,
+                    "description": getattr(query_att, "description", "") or "",
+                    "columns": [],
+                    "rows": [],
+                }
+                if sql_text and DATABRICKS_WAREHOUSE_ID:
                     try:
-                        query_result = w.genie.get_message_query_result(
-                            space_id=space_id,
-                            conversation_id=conversation_id,
-                            message_id=message_id,
-                            query_id=attachment.query_id
+                        stmt = w.statement_execution.execute_statement(
+                            warehouse_id=DATABRICKS_WAREHOUSE_ID,
+                            statement=sql_text,
+                            wait_timeout="30s",
                         )
-                        if query_result:
-                            att_dict["query"] = {
-                                "query": query_result.query or "",
-                                "columns": [{"name": c} for c in (query_result.columns or [])],
-                                "rows": query_result.rows or []
-                            }
+                        manifest = getattr(stmt, "manifest", None)
+                        schema = getattr(manifest, "schema", None) if manifest else None
+                        cols = getattr(schema, "columns", None) if schema else None
+                        if cols:
+                            table["columns"] = [getattr(c, "name", f"col_{i}") for i, c in enumerate(cols)]
+                        data = getattr(stmt, "result", None)
+                        if data is not None and getattr(data, "data_array", None):
+                            table["rows"] = data.data_array
                     except Exception as e:
-                        print(f"Error fetching query result: {e}")
-
-                if att_dict:
-                    result["attachments"].append(att_dict)
+                        print(f"Error executing Genie SQL: {e}")
+                result["tables"].append(table)
 
         return result
     except Exception as e:
@@ -435,7 +513,7 @@ def build_header():
                 ),
                 html.Div([
                     html.H2(
-                        "Service Plan Document Intelligence",
+                        "GENEVA HEALTHCARE Document Intelligence",
                         className="mb-0",
                         style={"fontWeight": "700", "letterSpacing": "-0.5px"}
                     ),
@@ -478,7 +556,7 @@ def build_tab1():
                         html.Span(user['name'], style={"fontSize": "1.1rem", "fontWeight": "600", "color": "#00b4d8"})
                     ], style={"marginBottom": "8px"}),
                     html.Span(
-                        f"Submit Service Plan PDFs for processing. Logged in as {user['email']}",
+                        f"Submit GENEVA HEALTHCARE PDFs for processing. Logged in as {user['email']}",
                         style={"color": "rgba(255,255,255,0.6)", "fontSize": "0.9rem"}
                     )
                 ], className="welcome-banner")
@@ -512,7 +590,21 @@ def build_tab1():
                     ])
                 ], className="glass-card mb-4", style={"minHeight": "350px"})
             ], md=7)
-        ])
+        ]),
+        # PDF viewer modal — opened by clicking a submission row
+        dbc.Modal(
+            [
+                dbc.ModalHeader(dbc.ModalTitle(id="pdf-modal-title")),
+                dbc.ModalBody(html.Div(id="pdf-modal-body", style={"minHeight": "70vh"})),
+                dbc.ModalFooter(
+                    dbc.Button("Close", id="pdf-modal-close", className="ms-auto", color="secondary")
+                ),
+            ],
+            id="pdf-modal",
+            size="xl",
+            is_open=False,
+            scrollable=True,
+        ),
     ], style={"padding": "0 20px"})
 
 
@@ -573,7 +665,7 @@ def build_tab3():
                         style={"fontWeight": "600", "marginBottom": "4px"}
                     ),
                     html.P(
-                        "Ask questions in natural language about service plans, care hours, funding, and client conditions",
+                        "Ask questions in natural language about GENEVA HEALTHCARE plans, care hours, funding, and client conditions",
                         style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem", "marginBottom": "0"}
                     )
                 ], className="mb-3"),
@@ -625,17 +717,23 @@ def build_tab3():
 
 
 # --- Main Layout ---
-app.layout = html.Div([
-    dcc.Store(id="conversation-store", data={"conversation_id": None, "messages": []}),
-    dcc.Store(id="user-store", data=get_current_user()),
-    build_header(),
-    dbc.Tabs([
-        dbc.Tab(build_tab1(), label="Submit & Track", tab_id="tab-1", label_style={"fontSize": "0.9rem"}),
-        dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", label_style={"fontSize": "0.9rem"}),
-        dbc.Tab(build_tab3(), label="Genie Assistant", tab_id="tab-3", label_style={"fontSize": "0.9rem"})
-    ], id="main-tabs", active_tab="tab-1", style={"padding": "0 20px"}),
-    dcc.Interval(id="refresh-interval", interval=30000, n_intervals=0)
-])
+# Defined as a FUNCTION so it is re-evaluated on every page load *within* a request
+# context. That lets get_current_user() read the X-Forwarded-Email header for the
+# actual logged-in user, instead of capturing a single identity at import time.
+def serve_layout():
+    return html.Div([
+        dcc.Store(id="conversation-store", data={"conversation_id": None, "messages": []}),
+        dcc.Store(id="user-store", data=get_current_user()),
+        build_header(),
+        dbc.Tabs([
+            dbc.Tab(build_tab1(), label="Submit & Track", tab_id="tab-1", label_style={"fontSize": "0.9rem"}),
+            dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", label_style={"fontSize": "0.9rem"}),
+            dbc.Tab(build_tab3(), label="Genie Assistant", tab_id="tab-3", label_style={"fontSize": "0.9rem"})
+        ], id="main-tabs", active_tab="tab-1", style={"padding": "0 20px"}),
+        dcc.Interval(id="refresh-interval", interval=30000, n_intervals=0)
+    ])
+
+app.layout = serve_layout
 
 
 # --- Callbacks ---
@@ -691,37 +789,107 @@ def handle_upload(contents_list, filenames, user_data):
     State("user-store", "data")
 )
 def refresh_submissions(n, user_data):
-    """Refresh submissions table with user's documents."""
-    df = get_submitted_documents(user_data["email"])
+    """Render the current user's submissions as a clickable list.
+
+    Each row is a button (pattern-matched id carries the file_path) so clicking it
+    opens the PDF viewer modal. Rows show file name, submitted time, and a status pill.
+    """
+    email = (user_data or {}).get("email", "")
+    df, scope = get_submitted_documents(email)
     if df.empty:
         return html.Div([
             html.I(className="bi bi-inbox", style={"fontSize": "2.5rem", "color": "rgba(255,255,255,0.2)"}),
             html.P("No documents submitted yet", className="mt-2", style={"color": "rgba(255,255,255,0.4)"})
         ], style={"textAlign": "center", "padding": "60px 0"})
 
-    return dash_table.DataTable(
-        data=df.to_dict("records"),
-        columns=[{"name": c, "id": c} for c in df.columns],
-        style_table={"overflowX": "auto"},
-        style_header={
-            "background": "rgba(0,180,216,0.15)",
-            "color": "white",
-            "fontWeight": "600",
-            "border": "none"
-        },
-        style_cell={
-            "background": "transparent",
-            "color": "white",
-            "border": "1px solid rgba(255,255,255,0.05)",
-            "fontSize": "0.85rem",
-            "padding": "10px"
-        },
-        style_data_conditional=[
-            {"if": {"filter_query": "{Status} = INGESTED"}, "color": "#00e676", "fontWeight": "600"},
-            {"if": {"filter_query": "{Status} = PENDING"}, "color": "#ffab40", "fontWeight": "600"}
-        ],
-        page_size=8
-    )
+    rows = []
+    for _, r in df.iterrows():
+        status = r["Status"]
+        pill_class = "status-badge-success" if status == "Processed" else "status-badge-running"
+        rows.append(
+            html.Button(
+                [
+                    html.Div([
+                        html.I(className="bi bi-file-earmark-pdf",
+                               style={"fontSize": "1.3rem", "color": "#00b4d8", "marginRight": "12px"}),
+                        html.Div([
+                            html.Div(r["File Name"], style={
+                                "fontWeight": "600", "fontSize": "0.85rem", "wordBreak": "break-all"}),
+                            html.Small(f"Submitted {r['Submitted']}",
+                                       style={"color": "rgba(255,255,255,0.5)"})
+                        ])
+                    ], style={"display": "flex", "alignItems": "center", "flex": "1", "textAlign": "left"}),
+                    html.Span(status, className=pill_class, style={"marginLeft": "12px", "whiteSpace": "nowrap"}),
+                    html.I(className="bi bi-eye", style={"marginLeft": "12px", "color": "rgba(255,255,255,0.6)"}),
+                ],
+                id={"type": "submission-row", "path": r["file_path"]},
+                n_clicks=0,
+                className="submission-row-btn",
+            )
+        )
+
+    listing = html.Div(rows, style={"maxHeight": "420px", "overflowY": "auto"})
+
+    if scope == "all":
+        note = html.P(
+            [html.I(className="bi bi-info-circle me-2"),
+             "You have no submissions yet — showing all recent submissions across users."],
+            style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.8rem", "marginBottom": "10px"}
+        )
+        return html.Div([note, listing])
+
+    return listing
+
+
+def _load_pdf_iframe(file_path):
+    """Download a PDF from the UC volume and return an <iframe> data-URI viewer."""
+    try:
+        # Stored paths look like 'dbfs:/Volumes/...'; the Files API wants '/Volumes/...'.
+        vol_path = file_path
+        if vol_path.startswith("dbfs:"):
+            vol_path = vol_path[len("dbfs:"):]
+        resp = w.files.download(vol_path)
+        # DownloadResponse.contents is a streaming file-like object
+        raw = resp.contents.read() if hasattr(resp, "contents") else resp.read()
+        b64 = base64.b64encode(raw).decode("utf-8")
+        src = f"data:application/pdf;base64,{b64}"
+        return html.Iframe(
+            src=src,
+            style={"width": "100%", "height": "75vh", "border": "none", "borderRadius": "8px"},
+        )
+    except Exception as e:
+        return html.Div(
+            [html.I(className="bi bi-exclamation-triangle me-2"),
+             f"Could not load PDF: {str(e)}"],
+            style={"color": "#ff5252", "padding": "20px"},
+        )
+
+
+@callback(
+    Output("pdf-modal", "is_open"),
+    Output("pdf-modal-title", "children"),
+    Output("pdf-modal-body", "children"),
+    Input({"type": "submission-row", "path": ALL}, "n_clicks"),
+    Input("pdf-modal-close", "n_clicks"),
+    State("pdf-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_pdf_modal(row_clicks, close_click, is_open):
+    """Open the PDF viewer when a submission row is clicked; close on Close button."""
+    trigger = ctx.triggered_id
+    if trigger == "pdf-modal-close":
+        return False, no_update, no_update
+
+    # A row was clicked. ctx.triggered_id is the dict id with the file_path.
+    if isinstance(trigger, dict) and trigger.get("type") == "submission-row":
+        # Ignore phantom fires where no click actually happened (all n_clicks 0/None).
+        if not any(row_clicks or []):
+            return no_update, no_update, no_update
+        file_path = trigger.get("path")
+        title = file_path.rsplit("/", 1)[-1] if file_path else "Document"
+        return True, title, _load_pdf_iframe(file_path)
+
+    return no_update, no_update, no_update
 
 
 @callback(
@@ -853,7 +1021,6 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
                 content=message
             )
             conversation_id = response.conversation_id
-            message_id = response.message_id
         else:
             # Continue existing conversation
             response = w.genie.create_message_and_wait(
@@ -861,7 +1028,9 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
                 conversation_id=conversation_id,
                 content=message
             )
-            message_id = response.message_id
+        # start_conversation_and_wait / create_message_and_wait return a GenieMessage
+        # whose message-id attribute is `id` (not `message_id`).
+        message_id = getattr(response, "id", None) or getattr(response, "message_id", None)
 
         conv_data["conversation_id"] = conversation_id
 
@@ -873,57 +1042,57 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
                 html.Div(f"Error: {result['error']}", className="chat-bubble-genie")
             )
         else:
-            attachments = result.get("attachments", [])
             reply_parts = []
-            text_content = result.get("content", "")
+            text_content = result.get("text", "")
 
             # Add text response
             if text_content:
-                reply_parts.append(html.P(text_content))
+                reply_parts.append(html.P(text_content, style={"whiteSpace": "pre-wrap"}))
 
-            # Process query result attachments
-            for att in attachments:
-                if att.get("type") == "QUERY_RESULT" and att.get("query"):
-                    query_info = att.get("query", {})
-                    query_sql = query_info.get("query", "")
-                    columns = query_info.get("columns", [])
-                    rows = query_info.get("rows", [])
+            # Process query result tables
+            for tbl in result.get("tables", []):
+                query_sql = tbl.get("sql", "")
+                columns = tbl.get("columns", [])
+                rows = tbl.get("rows", [])
 
-                    # Show SQL if available
-                    if query_sql:
+                # Show a description line if Genie provided one
+                if tbl.get("description"):
+                    reply_parts.append(html.P(tbl["description"], style={"whiteSpace": "pre-wrap"}))
+
+                # Show SQL if available
+                if query_sql:
+                    reply_parts.append(
+                        html.Details([
+                            html.Summary("SQL Query", style={"cursor": "pointer", "color": "#00b4d8"}),
+                            html.Code(query_sql, style={"fontSize": "0.8rem", "whiteSpace": "pre-wrap"})
+                        ], className="mt-2")
+                    )
+
+                # Show results table if available
+                if columns and rows:
+                    try:
+                        df = pd.DataFrame(rows, columns=columns)
                         reply_parts.append(
-                            html.Details([
-                                html.Summary("SQL Query", style={"cursor": "pointer", "color": "#00b4d8"}),
-                                html.Code(query_sql, style={"fontSize": "0.8rem", "whiteSpace": "pre-wrap"})
-                            ], className="mt-2")
-                        )
-
-                    # Show results table if available
-                    if columns and rows:
-                        try:
-                            col_names = [c.get("name", f"Column {i}") for i, c in enumerate(columns)]
-                            df = pd.DataFrame(rows, columns=col_names)
-                            reply_parts.append(
-                                dash_table.DataTable(
-                                    data=df.head(20).to_dict("records"),
-                                    columns=[{"name": c, "id": c} for c in df.columns],
-                                    style_header={
-                                        "background": "rgba(0,180,216,0.15)",
-                                        "color": "white",
-                                        "fontWeight": "600"
-                                    },
-                                    style_cell={
-                                        "background": "transparent",
-                                        "color": "white",
-                                        "border": "1px solid rgba(255,255,255,0.05)",
-                                        "fontSize": "0.8rem",
-                                        "padding": "8px"
-                                    },
-                                    style_table={"marginTop": "10px"}
-                                )
+                            dash_table.DataTable(
+                                data=df.head(20).to_dict("records"),
+                                columns=[{"name": c, "id": c} for c in df.columns],
+                                style_header={
+                                    "background": "rgba(0,180,216,0.15)",
+                                    "color": "white",
+                                    "fontWeight": "600"
+                                },
+                                style_cell={
+                                    "background": "transparent",
+                                    "color": "white",
+                                    "border": "1px solid rgba(255,255,255,0.05)",
+                                    "fontSize": "0.8rem",
+                                    "padding": "8px"
+                                },
+                                style_table={"marginTop": "10px"}
                             )
-                        except Exception as e:
-                            reply_parts.append(html.P(f"Could not render table: {str(e)}", style={"fontSize": "0.8rem", "color": "#ff5252"}))
+                        )
+                    except Exception as e:
+                        reply_parts.append(html.P(f"Could not render table: {str(e)}", style={"fontSize": "0.8rem", "color": "#ff5252"}))
 
             if reply_parts:
                 current_messages.append(html.Div(reply_parts, className="chat-bubble-genie"))
