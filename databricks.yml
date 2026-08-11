@@ -22,6 +22,9 @@ variables:
     default: ""
   app_name:
     default: doc-processing-app
+  app_principal:
+    description: "Service principal id the Databricks App runs as (granted read on the catalog by the setup job)"
+    default: "0fc21fa6-04c2-42fe-b620-b267744a682a"
 
 include:
   - resources/*.yml
