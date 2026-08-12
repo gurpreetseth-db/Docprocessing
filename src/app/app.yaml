@@ -35,5 +35,5 @@ env:
     description: "Genie space id (set after creating the Genie space)"
   # Pipeline id (optional; for display/links):
   - name: PIPELINE_ID
-    value: "d0e78a7e-a32c-467a-bc3a-f06e748faf7a"
+    value: "6a814530-94b1-45e0-b14b-8edfc3c7647e"
     description: "Lakeflow pipeline id (optional)"
