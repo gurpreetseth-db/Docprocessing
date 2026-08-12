@@ -758,9 +758,11 @@ def handle_upload(contents_list, filenames, user_data):
             content_type, content_string = content.split(",")
             decoded = base64.b64decode(content_string)
             submission_id = datetime.now().strftime("%Y%m%d%H%M%S")
-            # Filename convention: {email_slug}__{submission_id}__service_plan.pdf
-            dest_name = f"{email_slug}__{submission_id}__service_plan.pdf"
-            dest_path = f"{VOLUME_PATH}/{dest_name}"
+            # Preserve the ORIGINAL filename. Submitter email + submission id are carried
+            # in the folder path instead of being baked into the name:
+            #   InputPDFs/{email_slug}/{submission_id}/{original_filename}
+            safe_name = os.path.basename(filename)  # strip any path components
+            dest_path = f"{VOLUME_PATH}/{email_slug}/{submission_id}/{safe_name}"
             w.files.upload(dest_path, decoded, overwrite=True)
             results.append(
                 dbc.Alert(
