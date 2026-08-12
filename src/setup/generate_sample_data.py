@@ -446,13 +446,15 @@ for doc_idx in range(num_documents):
     submission_timestamp = base_timestamp + timedelta(seconds=doc_idx)
     submission_id = submission_timestamp.strftime("%Y%m%d%H%M%S")
 
-    # Build filename: email_slug__submission_id__service_plan.pdf
-    email_slug = user_email.replace("@", "_at_").replace(".", "_dot_")
-    filename = f"{email_slug}__{submission_id}__service_plan.pdf"
-
     # Generate synthetic data for this document (keep first/last names separate to handle multi-word names)
     client_first_name = random.choice(CLIENT_FIRST_NAMES)
     client_last_name = random.choice(CLIENT_LAST_NAMES)
+
+    # Realistic ORIGINAL filename (as a real coordinator would name it). Submitter email
+    # + submission id live in the folder path, not the filename:
+    #   InputPDFs/{email_slug}/{submission_id}/{original_name}
+    email_slug = user_email.replace("@", "_at_").replace(".", "_dot_")
+    filename = f"Service_Plan_{client_last_name.replace(' ', '')}_{submission_id}.pdf"
     funder = random.choice(FUNDER_TYPES)
     vulnerability_tier = random.choice(VULNERABILITY_TIERS)
     selected_conditions = random.sample(CONDITIONS, k=random.randint(1, 3))
@@ -475,8 +477,11 @@ for doc_idx in range(num_documents):
         submission_id=submission_id
     )
 
-    # Write directly to volume using native file I/O
-    file_path = f"{base_path}/{filename}"
+    # Write to volume under the {email_slug}/{submission_id}/ folder so the original
+    # filename is preserved (mirrors how the app uploads).
+    file_dir = f"{base_path}/{email_slug}/{submission_id}"
+    os.makedirs(file_dir, exist_ok=True)
+    file_path = f"{file_dir}/{filename}"
     with open(file_path, 'wb') as f:
         f.write(pdf_bytes)
 
