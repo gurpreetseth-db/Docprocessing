@@ -89,11 +89,11 @@ DESCRIPTION = (
 
 # Genie serialized-space payload (schema version 2). Tables + sample questions
 # are enough to bootstrap; instructions/joins can be curated later in the UI.
-serialized_space = json.dumps({
+serialized_space = {
     "version": 2,
     "config": {"sample_questions": SAMPLE_QUESTIONS},
     "data_sources": {"tables": [{"identifier": t} for t in GOLD_TABLES]},
-})
+}
 
 # COMMAND ----------
 
