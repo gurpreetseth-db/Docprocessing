@@ -324,10 +324,14 @@ def section_header(text, hint=""):
 
 
 def chk(checked):
-    """A tiny bordered box cell, 'X' when checked. Font-safe (no unicode glyphs)."""
-    b = Table([["X" if checked else ""]], colWidths=[10], rowHeights=[10])
+    """Checkbox rendered as explicit ASCII text: '[X]' when ticked, '[ ]' when not.
+
+    Why not a bordered empty/filled box: an empty box cell can be dropped when the PDF
+    is parsed to text (so unticked options vanish and the extractor cannot tell what was
+    on the form). '[X]'/'[ ]' always renders (any font) and is unambiguous once parsed.
+    """
+    b = Table([[P("[X]" if checked else "[ ]", BODY_SM)]], colWidths=[16], rowHeights=[12])
     b.setStyle(TableStyle([
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.black),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -424,23 +428,30 @@ def create_service_plan_pdf(d):
     story.append(P("<b>SERVICE PLAN | COMPLEX CARE</b>", H_SUB))
     story.append(Spacer(1, 6))
 
-    # Completed-by / date + vulnerability tier checkboxes
+    # Completed-by / date + vulnerability tier. The tier is rendered as inline
+    # "Level N [X]/[ ]" text in a single spanned cell, so the ticked tier is
+    # unambiguous once the PDF is parsed. (The previous interleaved label/checkbox
+    # layout parsed incorrectly — e.g. Level 2 read as Level 1.)
     tiers = d["vulnerability_tier"]
+
+    def _tier_mark(v):
+        return "[X]" if tiers == v else "[ ]"
+
+    tier_text = (
+        f"Level 1 {_tier_mark('Level 1')} &nbsp;&nbsp; Level 2 {_tier_mark('Level 2')} "
+        f"&nbsp;&nbsp; Level 3 {_tier_mark('Level 3')} &nbsp;&nbsp; N/A {_tier_mark('N/A')}"
+    )
     vt = Table([
         [P("Completed by:", BOLD), P(d["care_coordinator"]),
-         P("<i>Vulnerability Tier:</i>", BOLD),
-         P("Level 1", BODY_SM), chk(tiers == "Level 1"), P("Level 2", BODY_SM), chk(tiers == "Level 2")],
-        [P("Date:", BOLD), P(d["completed_date"]),
-         P("", BODY_SM),
-         P("Level 3", BODY_SM), chk(tiers == "Level 3"), P("N/A", BODY_SM), chk(tiers == "N/A")],
-    ], colWidths=[CONTENT_W * 0.16, CONTENT_W * 0.30, CONTENT_W * 0.18,
-                  CONTENT_W * 0.10, 12, CONTENT_W * 0.08, 12])
+         P("Date:", BOLD), P(d["completed_date"])],
+        [P("Vulnerability Tier:", BOLD), P(tier_text, BODY_SM), P("", BODY), P("", BODY)],
+    ], colWidths=[CONTENT_W * 0.18, CONTENT_W * 0.42, CONTENT_W * 0.16, CONTENT_W * 0.24])
     vt.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.5, GRID_GREY),
-        ("BACKGROUND", (2, 0), (-1, -1), LIGHT_GREY),
-        ("SPAN", (2, 0), (2, 1)),
+        ("BACKGROUND", (0, 0), (0, -1), LIGHT_GREY),
+        ("BACKGROUND", (2, 0), (2, 0), LIGHT_GREY),
+        ("SPAN", (1, 1), (3, 1)),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("TEXTCOLOR", (2, 0), (2, 1), colors.red),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
     ]))
     story.append(vt)
@@ -584,13 +595,20 @@ def create_service_plan_pdf(d):
     story.append(hcit)
     story.append(Spacer(1, 6))
 
+    # Label -> mark rows (mirrors the support grids, which parse cleanly). The old
+    # single-row "box,label,box,label" layout dropped the checkbox cells on parse, so
+    # the ticked services were lost.
     story.append(section_header("Essential Service and Public Holiday Arrangements Required"))
-    ess = Table([[chk("Household Support" in d["services_required"]), P("Household Support", BODY_SM),
-                  chk("Personal Support" in d["services_required"]), P("Personal Support", BODY_SM),
-                  chk(False), P("Childcare", BODY_SM)]],
-                colWidths=[12, CONTENT_W * 0.30, 12, CONTENT_W * 0.30, 12, CONTENT_W * 0.28])
-    ess.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.5, GRID_GREY),
-                             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("FONTSIZE", (0, 0), (-1, -1), 8)]))
+    ess = Table([
+        [P("Household Support", BODY_SM), chk("Household Support" in d["services_required"])],
+        [P("Personal Support", BODY_SM), chk("Personal Support" in d["services_required"])],
+        [P("Childcare", BODY_SM), chk(False)],
+    ], colWidths=[CONTENT_W * 0.7, CONTENT_W * 0.3])
+    ess.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, GRID_GREY),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+    ]))
     story.append(ess)
     story.append(Spacer(1, 6))
 
