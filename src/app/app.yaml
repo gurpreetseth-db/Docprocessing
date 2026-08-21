@@ -1,39 +1,20 @@
+# =============================================================================
+# App runtime manifest (minimal on purpose).
+# =============================================================================
+# The command is defined here; all environment variables and resource wiring are
+# supplied by the bundle app resource (resources/app.yml -> config.env), which is
+# the single source of truth and substitutes values from config.yml. This keeps
+# catalog/schema names, the Genie agent name, the warehouse id and job id out of
+# source control drift.
+#
+# The app reads these env vars (set by the bundle): JOB_ID, DATABRICKS_WAREHOUSE_ID,
+# CATALOG, BRONZE_SCHEMA, SILVER_SCHEMA, GOLD_SCHEMA, VOLUME_NAME, GENIE_SPACE_NAME.
+# =============================================================================
 command:
   - "python"
   - "app.py"
 
 env:
-  # DATABRICKS_HOST is injected automatically by the Apps runtime — do NOT declare it
-  # here (an env entry with neither value nor valueFrom is rejected at build time).
   - name: DATABRICKS_APP_PORT
     value: "8050"
     description: "Port for the Dash app (default 8050)"
-
-  # --- Wired from the bundle app-resource (see resources/app.yml) ---
-  - name: JOB_ID
-    valueFrom: "app-job"
-    description: "Doc processing job id — used by the Pipeline Ops tab to trigger runs"
-
-  # --- Catalog / schema names (literal defaults; keep in sync with config.yml) ---
-  - name: CATALOG
-    value: "DocProcessing"
-  - name: BRONZE_SCHEMA
-    value: "DocProcess_Bronze"
-  - name: SILVER_SCHEMA
-    value: "DocProcess_Silver"
-  - name: GOLD_SCHEMA
-    value: "DocProcess_Gold"
-
-  # --- Set these after deploy (ids unknown at build time) ---
-  # SQL Warehouse id the app queries submissions/runs with:
-  - name: DATABRICKS_WAREHOUSE_ID
-    value: "29b33b8b6a20b116"
-    description: "SQL Warehouse id (set in App UI -> Environment once known)"
-  # Genie space id for the 'Doc Processing Helper' space:
-  - name: GENIE_SPACE_ID
-    value: "01f1951646ed1db09a7e272b6fe29894"
-    description: "Genie space id (set after creating the Genie space)"
-  # Pipeline id (optional; for display/links):
-  - name: PIPELINE_ID
-    value: "d3626c68-3384-47d8-a787-50ebb2f4ae15"
-    description: "Lakeflow pipeline id (optional)"

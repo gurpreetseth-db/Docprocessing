@@ -2,13 +2,20 @@
 -- MAGIC %md
 -- MAGIC # Silver Layer - Document Parsing & Extraction
 -- MAGIC
--- MAGIC Parses PDFs via ai_parse_document to extract text, then applies ai_extract
--- MAGIC for structured field extraction. MVs are created in DocProcessing.DocProcess_Silver schema
--- MAGIC with fully-qualified names. Bronze tables are read by bare name from the default schema.
+-- MAGIC Parses PDFs via `ai_parse_document` to extract text, then applies `ai_extract`
+-- MAGIC for structured field extraction. MVs are created in ${catalog}.${silver_schema}
+-- MAGIC with fully-qualified names. Bronze tables are read by bare name from the
+-- MAGIC pipeline's default schema (${catalog}.${bronze_schema}).
+-- MAGIC
+-- MAGIC **Date normalization:** the generated Service Plan PDFs write dates as
+-- MAGIC `dd.mm.yyyy` (referral/start/review) and `dd/mm/yyyy` (date of birth). A plain
+-- MAGIC `CAST(... AS DATE)` only accepts ISO `yyyy-MM-dd`, so those would silently become
+-- MAGIC NULL downstream. Silver therefore normalizes every date to a real `DATE` here
+-- MAGIC (trying ISO first, then the NZ day-first formats) so Gold gets valid dates.
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Silver.parsed_documents
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${silver_schema}.parsed_documents
 COMMENT "Documents parsed by AI document intelligence; text extracted from PDF elements"
 AS WITH parsed AS (
   SELECT
@@ -30,8 +37,8 @@ WHERE parsed_struct:error_status::string IS NULL;
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Silver.service_plan_extracted
-COMMENT "Service plan fields extracted via ai_extract from parsed text; includes join to submitter_email from document_submissions"
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${silver_schema}.service_plan_extracted
+COMMENT "Service plan fields extracted via ai_extract from parsed text; dates normalized to real DATE; joined to submitter_email from document_submissions"
 AS WITH extraction_result AS (
   SELECT
     pd.file_path,
@@ -45,13 +52,13 @@ AS WITH extraction_result AS (
         "client_last_name": {"type": "string", "description": "Last name of the service plan client"},
         "nhi_number": {"type": "string", "description": "National Health Index number"},
         "gender": {"type": "string", "description": "Gender (M/F/Other)"},
-        "date_of_birth": {"type": "string", "description": "Date of birth (YYYY-MM-DD)"},
+        "date_of_birth": {"type": "string", "description": "Date of birth"},
         "funder": {"type": "string", "description": "Funding organization (DHB/MOH/ACC)"},
         "contract_type": {"type": "string", "description": "Type of service contract"},
         "package_of_care": {"type": "string", "description": "Care package description"},
         "vulnerability_tier": {"type": "string", "description": "Vulnerability level (Level 1/2/3/N/A)"},
-        "referral_date": {"type": "string", "description": "Date of referral (YYYY-MM-DD)"},
-        "service_start_date": {"type": "string", "description": "Service start date (YYYY-MM-DD)"},
+        "referral_date": {"type": "string", "description": "Date of referral"},
+        "service_start_date": {"type": "string", "description": "Service start date"},
         "review_frequency": {"type": "string", "description": "Care review frequency"},
         "weekly_care_hours": {"type": "number", "description": "Total weekly care hours"},
         "care_coordinator": {"type": "string", "description": "Assigned care coordinator name"},
@@ -74,11 +81,11 @@ AS WITH extraction_result AS (
         "ethnicity": {"type": "string", "description": "Client ethnicity (e.g. Cook Island Maori, NZ European, Samoan)"},
         "allied_health_equipment": {"type": "array", "items": {"type": "string"}, "description": "Allied health equipment (commode/wheelchair/hoist/hospital bed/etc)"},
         "pressure_area_plan_completed": {"type": "boolean", "description": "Pressure area plan completed status"},
-        "review_date": {"type": "string", "description": "Next service review date (YYYY-MM-DD)"}
+        "review_date": {"type": "string", "description": "Next service review date"}
       }',
       map('version', '2.0')
     ) AS extract_result
-  FROM DocProcessing.DocProcess_Silver.parsed_documents pd
+  FROM ${catalog}.${silver_schema}.parsed_documents pd
 )
 SELECT
   extraction_result.file_path,
@@ -89,13 +96,32 @@ SELECT
   extract_result:response:client_last_name::STRING AS client_last_name,
   extract_result:response:nhi_number::STRING AS nhi_number,
   extract_result:response:gender::STRING AS gender,
-  extract_result:response:date_of_birth::STRING AS date_of_birth,
+  -- Normalize to a real DATE: try ISO, then NZ day-first formats (dd/MM/yyyy, dd.MM.yyyy, single-digit variants).
+  coalesce(
+    try_to_date(extract_result:response:date_of_birth::STRING, 'yyyy-MM-dd'),
+    try_to_date(extract_result:response:date_of_birth::STRING, 'dd/MM/yyyy'),
+    try_to_date(extract_result:response:date_of_birth::STRING, 'dd.MM.yyyy'),
+    try_to_date(extract_result:response:date_of_birth::STRING, 'd/M/yyyy'),
+    try_to_date(extract_result:response:date_of_birth::STRING, 'd.M.yyyy')
+  ) AS date_of_birth,
   extract_result:response:funder::STRING AS funder,
   extract_result:response:contract_type::STRING AS contract_type,
   extract_result:response:package_of_care::STRING AS package_of_care,
   extract_result:response:vulnerability_tier::STRING AS vulnerability_tier,
-  extract_result:response:referral_date::STRING AS referral_date,
-  extract_result:response:service_start_date::STRING AS service_start_date,
+  coalesce(
+    try_to_date(extract_result:response:referral_date::STRING, 'yyyy-MM-dd'),
+    try_to_date(extract_result:response:referral_date::STRING, 'dd/MM/yyyy'),
+    try_to_date(extract_result:response:referral_date::STRING, 'dd.MM.yyyy'),
+    try_to_date(extract_result:response:referral_date::STRING, 'd/M/yyyy'),
+    try_to_date(extract_result:response:referral_date::STRING, 'd.M.yyyy')
+  ) AS referral_date,
+  coalesce(
+    try_to_date(extract_result:response:service_start_date::STRING, 'yyyy-MM-dd'),
+    try_to_date(extract_result:response:service_start_date::STRING, 'dd/MM/yyyy'),
+    try_to_date(extract_result:response:service_start_date::STRING, 'dd.MM.yyyy'),
+    try_to_date(extract_result:response:service_start_date::STRING, 'd/M/yyyy'),
+    try_to_date(extract_result:response:service_start_date::STRING, 'd.M.yyyy')
+  ) AS service_start_date,
   extract_result:response:review_frequency::STRING AS review_frequency,
   extract_result:response:weekly_care_hours::DOUBLE AS weekly_care_hours,
   extract_result:response:care_coordinator::STRING AS care_coordinator,
@@ -118,7 +144,13 @@ SELECT
   extract_result:response:ethnicity::STRING AS ethnicity,
   from_json(extract_result:response:allied_health_equipment::STRING, 'ARRAY<STRING>') AS allied_health_equipment,
   extract_result:response:pressure_area_plan_completed::BOOLEAN AS pressure_area_plan_completed,
-  extract_result:response:review_date::STRING AS review_date
+  coalesce(
+    try_to_date(extract_result:response:review_date::STRING, 'yyyy-MM-dd'),
+    try_to_date(extract_result:response:review_date::STRING, 'dd/MM/yyyy'),
+    try_to_date(extract_result:response:review_date::STRING, 'dd.MM.yyyy'),
+    try_to_date(extract_result:response:review_date::STRING, 'd/M/yyyy'),
+    try_to_date(extract_result:response:review_date::STRING, 'd.M.yyyy')
+  ) AS review_date
 FROM extraction_result
 LEFT JOIN document_submissions ds ON extraction_result.file_path = ds.file_path
 -- ai_extract reports failures via error_message (JSON null on success); cast to string

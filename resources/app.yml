@@ -1,18 +1,16 @@
 # =============================================================================
 # Databricks App — Service Plan Document Intelligence (Dash, 3 tabs)
 # =============================================================================
-# The app's source lives in ../src/app (app.py + app.yaml + requirements.txt).
+# App source lives in ../src/app (app.py + app.yaml + requirements.txt).
 #
-# Resource wiring:
-#   * job -> bundle reference (always valid at deploy). Exposed to the app as
-#     JOB_ID so the "Pipeline Ops" tab can trigger runs.
+# Everything the app needs is driven from config.yml here (single source of truth),
+# so there are NO hardcoded ids in the app source:
+#   * catalog / schema names + Genie AGENT NAME -> config.env with ${var.*}
+#   * SQL warehouse id  -> injected from the `app-warehouse` resource (valueFrom)
+#   * job id            -> injected from the `app-job` resource (valueFrom)
 #
-# The following are NOT wired as bundle app-resources because their ids are not
-# known at deploy time (no SQL warehouse chosen yet; the Genie space is created
-# after deploy). Set them as app environment variables in src/app/app.yaml
-# (or in the App UI -> Environment) once known:
-#     DATABRICKS_WAREHOUSE_ID, GENIE_SPACE_ID, PIPELINE_ID
-# The app reads these from env and degrades gracefully when they are empty.
+# The app resolves the Genie space BY NAME (GENIE_SPACE_NAME) at runtime, so no
+# Genie space-id is ever wired.
 # =============================================================================
 resources:
   apps:
@@ -25,3 +23,32 @@ resources:
           job:
             id: ${resources.jobs.doc_processing_job.id}
             permission: CAN_MANAGE_RUN
+        - name: app-warehouse
+          sql_warehouse:
+            id: ${var.warehouse_id}
+            permission: CAN_USE
+      config:
+        command:
+          - "python"
+          - "app.py"
+        env:
+          - name: DATABRICKS_APP_PORT
+            value: "8050"
+          # Injected from the app resources above (ids resolved at deploy):
+          - name: JOB_ID
+            value_from: "app-job"
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: "app-warehouse"
+          # Catalog / schema names + Genie agent name (from config.yml):
+          - name: CATALOG
+            value: ${var.catalog}
+          - name: BRONZE_SCHEMA
+            value: ${var.bronze_schema}
+          - name: SILVER_SCHEMA
+            value: ${var.silver_schema}
+          - name: GOLD_SCHEMA
+            value: ${var.gold_schema}
+          - name: VOLUME_NAME
+            value: ${var.volume_name}
+          - name: GENIE_SPACE_NAME
+            value: ${var.genie_space_name}

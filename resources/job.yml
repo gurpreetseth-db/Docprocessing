@@ -1,12 +1,16 @@
 # =============================================================================
 # Jobs
 # =============================================================================
-#  * doc_processing_job   -> runs the Lakeflow pipeline; scheduled every 4h AND
-#                            triggered on-demand from the app's "Pipeline Ops"
-#                            tab (this job's id is passed to the app as JOB_ID).
-#  * doc_processing_setup -> one-off: creates catalog/schemas/volume/users and
-#                            generates the sample Service Plan PDFs. Run once
-#                            after first deploy (or when you want fresh data).
+#  * doc_processing_job   -> runs the Lakeflow pipeline (Bronze->Silver->Gold),
+#                            then provisions/refreshes the Genie Agent. Scheduled
+#                            every 4h AND triggered on-demand from the app's
+#                            "Pipeline Ops" tab (this job's id is passed to the
+#                            app as JOB_ID).
+#  * doc_processing_setup -> one-off: creates catalog/schemas/volume/users, grants
+#                            the app's service principal, and generates the sample
+#                            Service Plan PDFs. Run once after first deploy.
+#
+# All names/counts/schedule come from config.yml via ${var.*}.
 # =============================================================================
 resources:
   jobs:
@@ -15,13 +19,26 @@ resources:
       tags:
         project: doc-processing
       schedule:
-        quartz_cron_expression: "0 0 */4 * * ?"   # every 4 hours
-        timezone_id: "UTC"
+        quartz_cron_expression: ${var.processing_cron}
+        timezone_id: ${var.timezone}
         pause_status: UNPAUSED
       tasks:
         - task_key: run_document_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.doc_processing_pipeline.id}
+        # Genie space references Gold tables, so it can only be created once the
+        # pipeline has materialized them — hence this depends on the pipeline task.
+        - task_key: provision_genie
+          depends_on:
+            - task_key: run_document_pipeline
+          notebook_task:
+            notebook_path: ../src/setup/provision_genie.py
+            base_parameters:
+              catalog: ${var.catalog}
+              gold_schema: ${var.gold_schema}
+              genie_space_name: ${var.genie_space_name}
+              warehouse_id: ${var.warehouse_id}
+              app_name: ${var.app_name}
       queue:
         enabled: true
 
@@ -39,8 +56,9 @@ resources:
               silver_schema: ${var.silver_schema}
               gold_schema: ${var.gold_schema}
               volume_name: ${var.volume_name}
-              num_users: "10"
-              num_documents: "20"
+              num_users: ${var.num_users}
+              num_documents: ${var.num_documents}
+              app_name: ${var.app_name}
           # Serverless notebook compute (no cluster block needed)
       queue:
         enabled: true

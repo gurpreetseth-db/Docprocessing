@@ -20,20 +20,54 @@ except ImportError:
     HAS_FLASK_REQUEST = False
 
 # --- Configuration from Environment ---
+# All of these are injected by the bundle app resource (resources/app.yml), which
+# sources them from config.yml. The app never hardcodes ids.
 DATABRICKS_HOST = os.environ.get("DATABRICKS_HOST", "")
 DATABRICKS_APP_PORT = int(os.environ.get("DATABRICKS_APP_PORT", "8050"))
 DATABRICKS_WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "")
+# The Genie Agent is resolved BY NAME at runtime (see resolve_genie_space_id()).
+# GENIE_SPACE_ID is an optional explicit override; normally it is empty.
+GENIE_SPACE_NAME = os.environ.get("GENIE_SPACE_NAME", "Doc Processing Helper")
 GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "")
 JOB_ID = os.environ.get("JOB_ID", "")
-PIPELINE_ID = os.environ.get("PIPELINE_ID", "")
 
 CATALOG = os.environ.get("CATALOG", "DocProcessing")
 BRONZE_SCHEMA = os.environ.get("BRONZE_SCHEMA", "DocProcess_Bronze")
 SILVER_SCHEMA = os.environ.get("SILVER_SCHEMA", "DocProcess_Silver")
 GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "DocProcess_Gold")
-VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/InputPDFs"
+VOLUME_NAME = os.environ.get("VOLUME_NAME", "InputPDFs")
+VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}"
 
 w = WorkspaceClient()
+
+# Cache the resolved Genie space id so we only hit the list API once per process.
+_GENIE_SPACE_ID_CACHE = {"id": GENIE_SPACE_ID or None}
+
+
+def resolve_genie_space_id():
+    """Resolve the Genie Agent's space id BY NAME (GENIE_SPACE_NAME).
+
+    Auto-provisioning creates the space post-deploy, so its id isn't known at
+    build time. Resolving by name means the app needs no id wiring and survives
+    redeploys. An explicit GENIE_SPACE_ID env var still wins if provided.
+    """
+    if _GENIE_SPACE_ID_CACHE["id"]:
+        return _GENIE_SPACE_ID_CACHE["id"]
+    try:
+        page_token, wanted = None, GENIE_SPACE_NAME.strip()
+        while True:
+            query = {"page_token": page_token} if page_token else None
+            resp = w.api_client.do("GET", "/api/2.0/genie/spaces", query=query) or {}
+            for s in resp.get("spaces", []):
+                if (s.get("title") or "").strip() == wanted:
+                    _GENIE_SPACE_ID_CACHE["id"] = s.get("space_id")
+                    return _GENIE_SPACE_ID_CACHE["id"]
+            page_token = resp.get("next_page_token")
+            if not page_token:
+                break
+    except Exception as e:
+        print(f"Could not resolve Genie space '{GENIE_SPACE_NAME}': {e}")
+    return None
 
 
 def run_sql(statement, warehouse_id=None):
@@ -999,11 +1033,17 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
     if not message or not message.strip():
         return no_update, no_update, no_update
 
-    if not GENIE_SPACE_ID:
+    space_id = resolve_genie_space_id()
+    if not space_id:
         current_messages.append(
             html.Div([
                 html.Div(message, className="chat-bubble-user", style={"marginLeft": "auto"}),
-                html.Div("GENIE_SPACE_ID not configured.", className="chat-bubble-genie")
+                html.Div(
+                    f"Genie Agent '{GENIE_SPACE_NAME}' not found yet. Run the processing "
+                    f"job (Pipeline Ops tab) — it provisions the Genie space after the "
+                    f"pipeline completes.",
+                    className="chat-bubble-genie"
+                )
             ])
         )
         return current_messages, conv_data, ""
@@ -1019,14 +1059,14 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
         if not conversation_id:
             # Start new conversation with SDK
             response = w.genie.start_conversation_and_wait(
-                space_id=GENIE_SPACE_ID,
+                space_id=space_id,
                 content=message
             )
             conversation_id = response.conversation_id
         else:
             # Continue existing conversation
             response = w.genie.create_message_and_wait(
-                space_id=GENIE_SPACE_ID,
+                space_id=space_id,
                 conversation_id=conversation_id,
                 content=message
             )
@@ -1037,7 +1077,7 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
         conv_data["conversation_id"] = conversation_id
 
         # Fetch detailed message with attachments
-        result = get_genie_response(GENIE_SPACE_ID, conversation_id, message_id)
+        result = get_genie_response(space_id, conversation_id, message_id)
 
         if "error" in result:
             current_messages.append(

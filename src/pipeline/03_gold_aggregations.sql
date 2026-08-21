@@ -4,19 +4,22 @@
 -- MAGIC # Gold Layer - Dimensional Data Model
 -- MAGIC
 -- MAGIC Dimensional model (2 dimensions, 2 facts, 1 demand fact, 1 aggregate) powering analytics and Genie Q&A.
--- MAGIC Source: DocProcessing.DocProcess_Silver.service_plan_extracted
--- MAGIC Target schema: DocProcessing.DocProcess_Gold
+-- MAGIC Source: ${catalog}.${silver_schema}.service_plan_extracted
+-- MAGIC Target schema: ${catalog}.${gold_schema}
+-- MAGIC
+-- MAGIC Dates arrive from Silver already normalized to real `DATE` values, so this layer
+-- MAGIC no longer needs defensive `TRY_CAST(... AS DATE)` wrappers.
 
 -- COMMAND ----------
 
 -- DBTITLE 1,dim_client
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.dim_client
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.dim_client
 COMMENT 'Client dimension: one row per NHI number with latest demographics and aggregated conditions'
 AS
 WITH ranked AS (
   SELECT *,
     ROW_NUMBER() OVER (PARTITION BY nhi_number ORDER BY ingestion_timestamp DESC) AS rn
-  FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+  FROM ${catalog}.${silver_schema}.service_plan_extracted
   WHERE nhi_number IS NOT NULL
 ),
 latest AS (
@@ -24,7 +27,7 @@ latest AS (
 ),
 all_conditions AS (
   SELECT nhi_number, COLLECT_SET(condition) AS all_primary_conditions
-  FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+  FROM ${catalog}.${silver_schema}.service_plan_extracted
   LATERAL VIEW EXPLODE(primary_conditions) t AS condition
   WHERE nhi_number IS NOT NULL AND condition IS NOT NULL
   GROUP BY nhi_number
@@ -35,7 +38,7 @@ SELECT
   l.client_last_name,
   l.prefers_to_be_called,
   l.gender,
-  TRY_CAST(l.date_of_birth AS DATE) AS date_of_birth,
+  l.date_of_birth,
   l.ethnicity,
   l.epoa_status,
   l.interrai_score,
@@ -43,16 +46,16 @@ SELECT
   l.region,
   l.vulnerability_tier,
   COALESCE(ac.all_primary_conditions, ARRAY()) AS primary_conditions,
-  (SELECT MIN(TRY_CAST(r2.referral_date AS DATE)) FROM DocProcessing.DocProcess_Silver.service_plan_extracted r2 WHERE r2.nhi_number = l.nhi_number) AS first_referral_date,
-  TRY_CAST(l.service_start_date AS DATE) AS latest_service_start_date,
-  (SELECT COUNT(*) FROM DocProcessing.DocProcess_Silver.service_plan_extracted r3 WHERE r3.nhi_number = l.nhi_number) AS plan_count
+  (SELECT MIN(r2.referral_date) FROM ${catalog}.${silver_schema}.service_plan_extracted r2 WHERE r2.nhi_number = l.nhi_number) AS first_referral_date,
+  l.service_start_date AS latest_service_start_date,
+  (SELECT COUNT(*) FROM ${catalog}.${silver_schema}.service_plan_extracted r3 WHERE r3.nhi_number = l.nhi_number) AS plan_count
 FROM latest l
 LEFT JOIN all_conditions ac ON l.nhi_number = ac.nhi_number;
 
 -- COMMAND ----------
 
 -- DBTITLE 1,dim_care_coordinator
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.dim_care_coordinator
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.dim_care_coordinator
 COMMENT 'Care coordinator dimension with workload and capacity metrics'
 AS
 WITH coordinator_stats AS (
@@ -63,7 +66,7 @@ WITH coordinator_stats AS (
     SUM(weekly_care_hours) AS total_weekly_hours_assigned,
     COUNT(DISTINCT file_path) AS total_plans_managed,
     ROW_NUMBER() OVER (PARTITION BY care_coordinator ORDER BY COUNT(*) DESC) AS region_rank
-  FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+  FROM ${catalog}.${silver_schema}.service_plan_extracted
   WHERE care_coordinator IS NOT NULL
   GROUP BY care_coordinator, region
 )
@@ -80,7 +83,7 @@ GROUP BY care_coordinator, region;
 -- COMMAND ----------
 
 -- DBTITLE 1,fact_service_plan
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.fact_service_plan
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_service_plan
 COMMENT 'Service plan fact table: one row per plan with proper date types and foreign keys'
 AS SELECT
   file_path AS plan_id,
@@ -90,11 +93,11 @@ AS SELECT
   contract_type,
   package_of_care,
   vulnerability_tier,
-  TRY_CAST(referral_date AS DATE) AS referral_date,
-  TRY_CAST(service_start_date AS DATE) AS service_start_date,
+  referral_date,
+  service_start_date,
   weekly_care_hours,
   review_frequency,
-  TRY_CAST(review_date AS DATE) AS review_date,
+  review_date,
   long_term_goal,
   manual_handling_plan_completed,
   pressure_area_plan_completed,
@@ -107,30 +110,30 @@ AS SELECT
   submitter_email,
   region,
   ingestion_timestamp,
-  DATEDIFF(TRY_CAST(service_start_date AS DATE), TRY_CAST(referral_date AS DATE)) AS days_referral_to_start
-FROM DocProcessing.DocProcess_Silver.service_plan_extracted;
+  DATEDIFF(service_start_date, referral_date) AS days_referral_to_start
+FROM ${catalog}.${silver_schema}.service_plan_extracted;
 
 -- COMMAND ----------
 
 -- DBTITLE 1,fact_service_demand_by_region
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.fact_service_demand_by_region
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_service_demand_by_region
 COMMENT 'Service demand exploded by service type, region, funder, and referral month'
 AS SELECT
   service,
   region,
   funder,
-  DATE_TRUNC('MONTH', TRY_CAST(referral_date AS DATE)) AS referral_month,
+  DATE_TRUNC('MONTH', referral_date) AS referral_month,
   COUNT(DISTINCT file_path) AS num_plans,
   SUM(weekly_care_hours) AS total_weekly_hours
-FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+FROM ${catalog}.${silver_schema}.service_plan_extracted
 LATERAL VIEW EXPLODE(services_required) t AS service
 WHERE service IS NOT NULL AND region IS NOT NULL AND funder IS NOT NULL
-GROUP BY service, region, funder, DATE_TRUNC('MONTH', TRY_CAST(referral_date AS DATE));
+GROUP BY service, region, funder, DATE_TRUNC('MONTH', referral_date);
 
 -- COMMAND ----------
 
 -- DBTITLE 1,fact_risk_profile
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.fact_risk_profile
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_risk_profile
 COMMENT 'Risk profile: each risk flag per client with vulnerability and region context'
 AS SELECT
   nhi_number,
@@ -139,7 +142,7 @@ AS SELECT
   region,
   COUNT(DISTINCT file_path) AS plan_count,
   BOOL_OR(NOT manual_handling_plan_completed) AS has_incomplete_handling_plan
-FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+FROM ${catalog}.${silver_schema}.service_plan_extracted
 LATERAL VIEW EXPLODE(risk_flags) t AS risk_flag
 WHERE risk_flag IS NOT NULL AND nhi_number IS NOT NULL
 GROUP BY nhi_number, risk_flag, vulnerability_tier, region;
@@ -147,17 +150,17 @@ GROUP BY nhi_number, risk_flag, vulnerability_tier, region;
 -- COMMAND ----------
 
 -- DBTITLE 1,agg_intake_funnel
-CREATE OR REFRESH MATERIALIZED VIEW DocProcessing.DocProcess_Gold.agg_intake_funnel
+CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.agg_intake_funnel
 COMMENT 'Intake funnel metrics by month, region, and funder for operational reporting'
 AS SELECT
-  DATE_TRUNC('MONTH', TRY_CAST(referral_date AS DATE)) AS referral_month,
+  DATE_TRUNC('MONTH', referral_date) AS referral_month,
   region,
   funder,
   COUNT(*) AS plans_referred,
   SUM(CASE WHEN service_start_date IS NOT NULL THEN 1 ELSE 0 END) AS plans_started,
-  AVG(DATEDIFF(TRY_CAST(service_start_date AS DATE), TRY_CAST(referral_date AS DATE))) AS avg_days_referral_to_start,
+  AVG(DATEDIFF(service_start_date, referral_date)) AS avg_days_referral_to_start,
   AVG(weekly_care_hours) AS avg_weekly_hours,
   SUM(weekly_care_hours) AS total_weekly_hours
-FROM DocProcessing.DocProcess_Silver.service_plan_extracted
+FROM ${catalog}.${silver_schema}.service_plan_extracted
 WHERE referral_date IS NOT NULL AND region IS NOT NULL AND funder IS NOT NULL
-GROUP BY DATE_TRUNC('MONTH', TRY_CAST(referral_date AS DATE)), region, funder;
+GROUP BY DATE_TRUNC('MONTH', referral_date), region, funder;

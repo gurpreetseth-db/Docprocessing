@@ -74,13 +74,37 @@ try:
 except:
     num_documents = 20
 
-# Optional: service principal / group that the Databricks App runs as. When set, we
-# grant it read access on the catalog so the app's queries (My Submissions, Pipeline
-# Ops) succeed — the app runs as its own SP, not as the deploying user.
+# The Databricks App runs as its own service principal (NOT the deploying user), so it
+# needs read access on the catalog for its queries (My Submissions, Pipeline Ops) to
+# succeed. We resolve that SP dynamically from the app name — no hardcoded id. An
+# explicit `app_principal` widget still overrides, if ever needed.
+try:
+    app_name = dbutils.widgets.get("app_name")
+except:
+    app_name = ""
+
 try:
     app_principal = dbutils.widgets.get("app_principal")
 except:
     app_principal = ""
+
+# Prefer resolving the SP from the app name (survives redeploys / workspace moves).
+if not app_principal and app_name:
+    try:
+        from databricks.sdk import WorkspaceClient
+        _app = WorkspaceClient().apps.get(name=app_name)
+        app_principal = (
+            getattr(_app, "service_principal_client_id", None)
+            or getattr(_app, "service_principal_id", None)
+            or ""
+        )
+        if app_principal:
+            print(f"Resolved app '{app_name}' service principal: {app_principal}")
+        else:
+            print(f"App '{app_name}' found but no service principal id yet "
+                  f"(deploy the app first, then re-run setup to grant access).")
+    except Exception as e:
+        print(f"Could not resolve app '{app_name}' service principal: {e}")
 
 print(f"Configuration:")
 print(f"  Catalog: {catalog}")
