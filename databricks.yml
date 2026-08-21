@@ -19,7 +19,7 @@ variables:
     default: ""
   warehouse_id:
     description: "SQL Warehouse id the app uses to query submissions/runs"
-    default: ""
+    default: "29b33b8b6a20b116"
   app_name:
     default: doc-processing-app
   app_principal:
@@ -34,5 +34,5 @@ targets:
     mode: development
     default: true
     workspace:
-      host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
+      host: "https://dbc-8aa630af-e02d.cloud.databricks.com/"
 

@@ -15,7 +15,7 @@ environment:
   # Logical environment name (maps to a bundle target in databricks.yml)
   name: dev
   # Databricks workspace host for this environment
-  host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
+  host: "https://dbc-8aa630af-e02d.cloud.databricks.com"
   # CLI auth profile to use (see `databricks auth profiles`)
   profile: docprocessing
 
