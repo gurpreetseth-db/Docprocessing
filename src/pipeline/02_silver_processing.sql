@@ -60,7 +60,21 @@ AS WITH extraction_result AS (
         "services_required": {"type": "array", "items": {"type": "string"}, "description": "Services required (Personal Support/Household Support/Nursing/etc)"},
         "risk_flags": {"type": "array", "items": {"type": "string"}, "description": "Risk assessment flags (Falls/Fragile skin/Bed bound/Seizure risk/etc)"},
         "long_term_goal": {"type": "string", "description": "Long-term care goal"},
-        "manual_handling_plan_completed": {"type": "boolean", "description": "Manual handling plan status"}
+        "short_term_goals": {"type": "array", "items": {"type": "string"}, "description": "Short-term care goals"},
+        "manual_handling_plan_completed": {"type": "boolean", "description": "Manual handling plan status"},
+        "prefers_to_be_called": {"type": "string", "description": "Name the client prefers to be called"},
+        "epoa_status": {"type": "string", "description": "Enduring Power of Attorney in place (Y/N)"},
+        "interrai_score": {"type": "number", "description": "InterRAI assessment score"},
+        "package_of_care_hours": {"type": "number", "description": "Package of care weekly hours, e.g. PC:28hrs -> 28"},
+        "nasc_contact_name": {"type": "string", "description": "NASC contact name (Needs Assessment Service Coordination)"},
+        "gp_name": {"type": "string", "description": "General Practitioner (GP) name"},
+        "emergency_contact_name": {"type": "string", "description": "Emergency contact 1 name"},
+        "emergency_contact_relationship": {"type": "string", "description": "Emergency contact 1 relationship to client (Daughter/Son/Spouse/etc)"},
+        "allergies": {"type": "string", "description": "Known allergies, or No known allergies"},
+        "ethnicity": {"type": "string", "description": "Client ethnicity (e.g. Cook Island Maori, NZ European, Samoan)"},
+        "allied_health_equipment": {"type": "array", "items": {"type": "string"}, "description": "Allied health equipment (commode/wheelchair/hoist/hospital bed/etc)"},
+        "pressure_area_plan_completed": {"type": "boolean", "description": "Pressure area plan completed status"},
+        "review_date": {"type": "string", "description": "Next service review date (YYYY-MM-DD)"}
       }',
       map('version', '2.0')
     ) AS extract_result
@@ -90,7 +104,21 @@ SELECT
   from_json(extract_result:response:services_required::STRING, 'ARRAY<STRING>') AS services_required,
   from_json(extract_result:response:risk_flags::STRING, 'ARRAY<STRING>') AS risk_flags,
   extract_result:response:long_term_goal::STRING AS long_term_goal,
-  extract_result:response:manual_handling_plan_completed::BOOLEAN AS manual_handling_plan_completed
+  from_json(extract_result:response:short_term_goals::STRING, 'ARRAY<STRING>') AS short_term_goals,
+  extract_result:response:manual_handling_plan_completed::BOOLEAN AS manual_handling_plan_completed,
+  extract_result:response:prefers_to_be_called::STRING AS prefers_to_be_called,
+  extract_result:response:epoa_status::STRING AS epoa_status,
+  extract_result:response:interrai_score::DOUBLE AS interrai_score,
+  extract_result:response:package_of_care_hours::DOUBLE AS package_of_care_hours,
+  extract_result:response:nasc_contact_name::STRING AS nasc_contact_name,
+  extract_result:response:gp_name::STRING AS gp_name,
+  extract_result:response:emergency_contact_name::STRING AS emergency_contact_name,
+  extract_result:response:emergency_contact_relationship::STRING AS emergency_contact_relationship,
+  extract_result:response:allergies::STRING AS allergies,
+  extract_result:response:ethnicity::STRING AS ethnicity,
+  from_json(extract_result:response:allied_health_equipment::STRING, 'ARRAY<STRING>') AS allied_health_equipment,
+  extract_result:response:pressure_area_plan_completed::BOOLEAN AS pressure_area_plan_completed,
+  extract_result:response:review_date::STRING AS review_date
 FROM extraction_result
 LEFT JOIN document_submissions ds ON extraction_result.file_path = ds.file_path
 -- ai_extract reports failures via error_message (JSON null on success); cast to string

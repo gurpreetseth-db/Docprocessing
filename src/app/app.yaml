@@ -27,7 +27,7 @@ env:
   # --- Set these after deploy (ids unknown at build time) ---
   # SQL Warehouse id the app queries submissions/runs with:
   - name: DATABRICKS_WAREHOUSE_ID
-    value: "d52fd76cb4721252"
+    value: "29b33b8b6a20b116"
     description: "SQL Warehouse id (set in App UI -> Environment once known)"
   # Genie space id for the 'Doc Processing Helper' space:
   - name: GENIE_SPACE_ID
@@ -35,5 +35,5 @@ env:
     description: "Genie space id (set after creating the Genie space)"
   # Pipeline id (optional; for display/links):
   - name: PIPELINE_ID
-    value: "6a814530-94b1-45e0-b14b-8edfc3c7647e"
+    value: "d3626c68-3384-47d8-a787-50ebb2f4ae15"
     description: "Lakeflow pipeline id (optional)"
