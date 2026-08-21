@@ -1,38 +1,24 @@
+# =============================================================================
+# Doc Processing — Databricks Asset Bundle root
+# =============================================================================
+# All configurable names/ids live in config.yml (the single source of truth,
+# included below as bundle `variables`). This file only declares the bundle,
+# what to include, and the deployment targets.
+# =============================================================================
 bundle:
   name: doc-processing-bundle
 
-variables:
-  catalog:
-    default: DocProcessing
-  bronze_schema:
-    default: DocProcess_Bronze
-  silver_schema:
-    default: DocProcess_Silver
-  gold_schema:
-    default: DocProcess_Gold
-  volume_name:
-    default: InputPDFs
-  genie_space_name:
-    default: "Doc Processing Helper"
-  genie_space_id:
-    description: "Genie space id (populate after creating the 'Doc Processing Helper' space)"
-    default: ""
-  warehouse_id:
-    description: "SQL Warehouse id the app uses to query submissions/runs"
-    default: ""
-  app_name:
-    default: doc-processing-app
-  app_principal:
-    description: "Service principal id the Databricks App runs as (granted read on the catalog by the setup job)"
-    default: "0fc21fa6-04c2-42fe-b620-b267744a682a"
-
 include:
-  - resources/*.yml
+  - config.yml          # variables: (catalog, schemas, genie name, app name, ...)
+  - resources/*.yml     # pipeline, jobs, app, dashboard
 
 targets:
   dev:
     mode: development
     default: true
     workspace:
-      host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
-
+      host: "https://dbc-8aa630af-e02d.cloud.databricks.com/"
+    # To retarget a different workspace/naming, override variables here, e.g.:
+    #   variables:
+    #     catalog: DocProcessing_Prod
+    #     warehouse_id: "<other-warehouse-id>"

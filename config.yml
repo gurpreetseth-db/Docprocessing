@@ -1,53 +1,71 @@
 # =============================================================================
-# Doc Processing — Central Configuration
+# Doc Processing — SINGLE SOURCE OF TRUTH for deployment configuration
 # =============================================================================
-# Single place to change environment-specific names. Values here are mirrored
-# into databricks.yml `variables` (bundle deploy reads variables from there),
-# and are also passed to the setup job + app as parameters/env vars.
+# This file is included by databricks.yml (`include: [config.yml, ...]`), so
+# everything defined here is a real Databricks Asset Bundle **variable**. Every
+# other artifact reads from these values — nothing is duplicated:
 #
-# To point the demo at a different workspace / naming scheme, edit the values
-# below AND the matching `variables:` defaults in databricks.yml, then run:
+#   * databricks.yml / resources/*.yml   -> ${var.<name>}
+#   * pipeline SQL (01/02/03)            -> ${<key>}  (via pipeline `configuration`)
+#   * setup + genie notebooks            -> dbutils.widgets (base_parameters)
+#   * the Databricks App                 -> env vars injected by resources/app.yml
+#
+# To retarget the demo (different catalog / schema names / Genie agent / app),
+# change the defaults BELOW ONLY, then:
 #   databricks bundle validate -t dev -p docprocessing
 #   databricks bundle deploy   -t dev -p docprocessing
 # =============================================================================
+variables:
+  # --- Unity Catalog naming ---------------------------------------------------
+  catalog:
+    description: "Unity Catalog that holds the bronze/silver/gold schemas + volume."
+    default: DocProcessing
+  bronze_schema:
+    description: "Bronze schema (raw ingestion + submissions + users + the input volume)."
+    default: DocProcess_Bronze
+  silver_schema:
+    description: "Silver schema (parsed + AI-extracted service-plan fields)."
+    default: DocProcess_Silver
+  gold_schema:
+    description: "Gold schema (dimensional model powering Genie + dashboards)."
+    default: DocProcess_Gold
+  volume_name:
+    description: "UC volume where incoming Service Plan PDFs land (Auto Loader source)."
+    default: InputPDFs
 
-environment:
-  # Logical environment name (maps to a bundle target in databricks.yml)
-  name: dev
-  # Databricks workspace host for this environment
-  host: "https://dbc-dedf1927-d4f5.cloud.databricks.com"
-  # CLI auth profile to use (see `databricks auth profiles`)
-  profile: docprocessing
+  # --- Genie Agent ------------------------------------------------------------
+  genie_space_name:
+    description: >-
+      Display name of the Genie Agent (Genie space). The setup pipeline creates
+      the space with this title if it does not already exist, and the app
+      resolves the space BY THIS NAME at runtime (no space-id wiring needed).
+    default: "Doc Processing Helper"
 
-# Unity Catalog naming
-catalog: DocProcessing
-schemas:
-  bronze: DocProcess_Bronze
-  silver: DocProcess_Silver
-  gold: DocProcess_Gold
+  # --- Databricks App ---------------------------------------------------------
+  app_name:
+    description: "Databricks App name (lowercase alphanumeric + hyphens)."
+    default: doc-processing-app
 
-# UC Volume where incoming Service Plan PDFs land (Auto Loader source)
-volume_name: InputPDFs
+  # --- Compute ----------------------------------------------------------------
+  warehouse_id:
+    description: >-
+      SQL Warehouse id used by the app (queries submissions/runs), the Genie
+      space, and the AI/BI dashboard. Defaults to the workspace's Serverless
+      Starter Warehouse; override per target if needed.
+    default: "29b33b8b6a20b116"
 
-# Genie
-genie:
-  space_name: "Doc Processing Helper"
-  # Populated after the Genie space is created in the workspace UI/API.
-  # Paste the space id here and expose it to the app via app.yaml env.
-  space_id: ""
+  # --- Sample data volumes ----------------------------------------------------
+  num_users:
+    description: "Number of NZ care-coordinator users the setup job seeds."
+    default: "10"
+  num_documents:
+    description: "Number of synthetic Service Plan PDFs the setup job generates."
+    default: "20"
 
-# Databricks App
-app:
-  name: doc-processing-app
-  display_name: "Service Plan Document Intelligence"
-
-# Sample-data volumes for the setup job
-sample_data:
-  num_users: 10
-  num_documents: 20
-
-# Pipeline scheduling
-schedule:
-  # Cron for the scheduled processing job (quartz cron, UTC)
-  processing_cron: "0 0 */4 * * ?"   # every 4 hours
-  timezone: "UTC"
+  # --- Pipeline schedule ------------------------------------------------------
+  processing_cron:
+    description: "Quartz cron for the scheduled processing job (UTC)."
+    default: "0 0 */4 * * ?"    # every 4 hours
+  timezone:
+    description: "Timezone id for the scheduled job."
+    default: "UTC"

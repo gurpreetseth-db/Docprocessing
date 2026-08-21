@@ -2,14 +2,18 @@
 -- MAGIC %md
 -- MAGIC # Bronze Layer - Document Ingestion
 -- MAGIC
--- MAGIC Auto Loader ingests PDF files from the InputPDFs volume as binary content.
--- MAGIC These streaming tables are created with bare names and published to DocProcessing.DocProcess_Bronze
--- MAGIC (the pipeline default schema).
+-- MAGIC Auto Loader ingests PDF files from the input volume as binary content.
+-- MAGIC These streaming tables are created with **bare names** and therefore land in the
+-- MAGIC pipeline's default catalog/schema (${catalog}.${bronze_schema}, set in resources/pipeline.yml).
+-- MAGIC
+-- MAGIC All catalog/schema/volume names come from the pipeline `configuration` block
+-- MAGIC (${catalog}, ${bronze_schema}, ${volume_name}) which is fed from config.yml — so
+-- MAGIC nothing here is hardcoded.
 
 -- COMMAND ----------
 
 CREATE OR REFRESH STREAMING TABLE raw_documents
-COMMENT "Raw binary PDF documents ingested via Auto Loader"
+COMMENT "Raw binary PDF documents ingested via Auto Loader from the input volume"
 AS SELECT
   path AS file_path,
   regexp_extract(path, '.*/([^/]+)$', 1) AS file_name,
@@ -18,7 +22,7 @@ AS SELECT
   content,
   current_timestamp() AS ingestion_timestamp
 FROM STREAM read_files(
-  '/Volumes/DocProcessing/DocProcess_Bronze/InputPDFs',
+  '/Volumes/${catalog}/${bronze_schema}/${volume_name}',
   format => 'binaryFile',
   recursiveFileLookup => 'true'
 );
@@ -31,16 +35,16 @@ AS SELECT
   path AS file_path,
   -- Real (original) filename: the final path segment, unchanged.
   regexp_extract(path, '.*/([^/]+)$', 1) AS file_name,
-  -- Submitter email: prefer the folder segment (new layout .../InputPDFs/{email_slug}/{submission_id}/{name});
+  -- Submitter email: prefer the folder segment (new layout .../${volume_name}/{email_slug}/{submission_id}/{name});
   -- fall back to the legacy filename prefix before the first '__'.
   replace(replace(
     coalesce(
-      nullif(regexp_extract(path, '/InputPDFs/([^/]+)/[^/]+/[^/]+$', 1), ''),
+      nullif(regexp_extract(path, '/${volume_name}/([^/]+)/[^/]+/[^/]+$', 1), ''),
       split(regexp_extract(path, '.*/([^/]+)$', 1), '__')[0]
     ), '_at_', '@'), '_dot_', '.') AS submitter_email,
   -- Submission id: the second folder segment in the new layout, else the middle of the legacy name.
   coalesce(
-    nullif(regexp_extract(path, '/InputPDFs/[^/]+/([^/]+)/[^/]+$', 1), ''),
+    nullif(regexp_extract(path, '/${volume_name}/[^/]+/([^/]+)/[^/]+$', 1), ''),
     split(regexp_extract(path, '.*/([^/]+)$', 1), '__')[1]
   ) AS submission_id,
   length AS file_size,
@@ -48,7 +52,7 @@ AS SELECT
   current_timestamp() AS ingestion_timestamp,
   'INGESTED' AS processing_status
 FROM STREAM read_files(
-  '/Volumes/DocProcessing/DocProcess_Bronze/InputPDFs',
+  '/Volumes/${catalog}/${bronze_schema}/${volume_name}',
   format => 'binaryFile',
   recursiveFileLookup => 'true'
 );
