@@ -87,13 +87,22 @@ DESCRIPTION = (
     "care_coordinator. All data is synthetic."
 )
 
-# Genie serialized-space payload (schema version 2). Tables + sample questions
-# are enough to bootstrap; instructions/joins can be curated later in the UI.
-serialized_space = {
+# Genie serialized-space payload (schema version 2).
+# API requires: json-encoded string, sample_questions as objects with 32-char hex id,
+# and collections sorted by their key.
+_questions = sorted(
+    [{"id": uuid.uuid4().hex, "question": [q]} for q in SAMPLE_QUESTIONS],
+    key=lambda x: x["id"],
+)
+_tables = sorted(
+    [{"identifier": t} for t in GOLD_TABLES],
+    key=lambda x: x["identifier"],
+)
+serialized_space = json.dumps({
     "version": 2,
-    "config": {"sample_questions": SAMPLE_QUESTIONS},
-    "data_sources": {"tables": [{"identifier": t} for t in GOLD_TABLES]},
-}
+    "config": {"sample_questions": _questions},
+    "data_sources": {"tables": _tables},
+})
 
 # COMMAND ----------
 
