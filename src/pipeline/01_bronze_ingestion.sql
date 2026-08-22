@@ -13,7 +13,8 @@
 -- COMMAND ----------
 
 CREATE OR REFRESH STREAMING TABLE raw_documents
-COMMENT "Raw binary PDF documents ingested via Auto Loader from the input volume"
+CLUSTER BY (file_name)
+COMMENT "Raw binary PDF documents ingested via Auto Loader. As a streaming table, Auto Loader checkpoints processed files, so each run ingests ONLY new files (never re-reads the whole volume)."
 AS SELECT
   path AS file_path,
   regexp_extract(path, '.*/([^/]+)$', 1) AS file_name,
@@ -30,7 +31,8 @@ FROM STREAM read_files(
 -- COMMAND ----------
 
 CREATE OR REFRESH STREAMING TABLE document_submissions
-COMMENT "Tracks document submissions. New layout stores files as InputPDFs/{email_slug}/{submission_id}/{original_name} so the real filename is preserved; the submitter email and submission id come from the folder path. Legacy flat files named {email_slug}__{submission_id}__service_plan.pdf are still supported."
+CLUSTER BY (submitter_email)
+COMMENT "Tracks document submissions (incremental — only new files each run). New layout stores files as InputPDFs/{email_slug}/{submission_id}/{original_name} so the real filename is preserved; the submitter email and submission id come from the folder path. Legacy flat files named {email_slug}__{submission_id}__service_plan.pdf are still supported. Clustered by submitter_email (the app's primary filter)."
 AS SELECT
   path AS file_path,
   -- Real (original) filename: the final path segment, unchanged.
