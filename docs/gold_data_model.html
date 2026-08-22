@@ -1,0 +1,465 @@
+<title>Service Plan Gold Model</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --bg:#f4f7f6; --surface:#ffffff; --surface-2:#eef3f1; --inset:#e7edeb;
+    --ink:#14201e; --ink-soft:#4c5b57; --ink-faint:#7c8a86; --line:#d6e0dc;
+    --accent:#0f766e; --accent-soft:#0f766e1a;
+    --dim:#35618e; --dim-soft:#35618e1a;
+    --fact:#0f766e; --fact-soft:#0f766e14;
+    --bridge:#a5590a; --bridge-soft:#a5590a14;
+    --metric:#6d3fb0; --metric-soft:#6d3fb014;
+    --good:#0f766e; --warn:#a5590a; --crit:#b3261e;
+    --radius:14px; --shadow:0 1px 2px rgba(20,32,30,.05),0 6px 20px rgba(20,32,30,.06);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c1413; --surface:#111b19; --surface-2:#16211f; --inset:#0f1817;
+      --ink:#e7edea; --ink-soft:#a3b2ad; --ink-faint:#71827d; --line:#243230;
+      --accent:#54cabd; --accent-soft:#54cabd1f;
+      --dim:#7aa9dd; --dim-soft:#7aa9dd1f;
+      --fact:#54cabd; --fact-soft:#54cabd16;
+      --bridge:#e0a35a; --bridge-soft:#e0a35a16;
+      --metric:#b596e8; --metric-soft:#b596e816;
+      --good:#54cabd; --warn:#e0a35a; --crit:#f0938c;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0c1413; --surface:#111b19; --surface-2:#16211f; --inset:#0f1817;
+    --ink:#e7edea; --ink-soft:#a3b2ad; --ink-faint:#71827d; --line:#243230;
+    --accent:#54cabd; --accent-soft:#54cabd1f;
+    --dim:#7aa9dd; --dim-soft:#7aa9dd1f;
+    --fact:#54cabd; --fact-soft:#54cabd16;
+    --bridge:#e0a35a; --bridge-soft:#e0a35a16;
+    --metric:#b596e8; --metric-soft:#b596e816;
+    --good:#54cabd; --warn:#e0a35a; --crit:#f0938c;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1120px; margin:0 auto; padding:clamp(1.5rem,4vw,3.5rem) clamp(1rem,3vw,2rem) 4rem}
+  h1,h2,h3{font-family:"Spectral",Georgia,serif; text-wrap:balance; margin:0}
+  code,.mono{font-family:"IBM Plex Mono",ui-monospace,monospace}
+
+  /* header */
+  header{border-bottom:1px solid var(--line); padding-bottom:1.6rem; margin-bottom:2rem}
+  .eyebrow{font-size:.72rem; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); font-weight:600; margin:0 0 .6rem}
+  h1{font-size:clamp(1.9rem,4.6vw,2.9rem); font-weight:700; letter-spacing:-.01em; line-height:1.05}
+  .lede{color:var(--ink-soft); max-width:66ch; margin:.85rem 0 0; font-size:1.02rem}
+  .badges{display:flex; flex-wrap:wrap; gap:.5rem; margin-top:1.2rem}
+  .badge{display:inline-flex; align-items:center; gap:.45rem; font-size:.78rem; font-weight:500;
+    padding:.32rem .7rem; border-radius:999px; border:1px solid var(--line); background:var(--surface-2); color:var(--ink-soft)}
+  .badge b{color:var(--ink); font-weight:600}
+  .dot{width:.55rem; height:.55rem; border-radius:50%; flex:none}
+
+  h2{font-size:1.28rem; font-weight:600; letter-spacing:-.005em; margin:2.6rem 0 .3rem}
+  .section-note{color:var(--ink-faint); font-size:.9rem; margin:0 0 1.15rem}
+
+  /* schematic */
+  .schematic{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); padding:1.4rem; display:grid;
+    grid-template-columns:1fr auto 1fr; align-items:center; gap:1rem; overflow-x:auto}
+  .flow-col{display:flex; flex-direction:column; gap:.5rem; min-width:150px}
+  .flow-col h4{margin:0 0 .15rem; font-family:"IBM Plex Sans",sans-serif; font-size:.7rem;
+    letter-spacing:.12em; text-transform:uppercase; color:var(--ink-faint); font-weight:600}
+  .node{font-family:"IBM Plex Mono",monospace; font-size:.8rem; padding:.4rem .6rem; border-radius:9px;
+    border:1px solid var(--line); background:var(--surface-2); color:var(--ink)}
+  .node.dim{border-left:3px solid var(--dim)}
+  .node.bridge{border-left:3px solid var(--bridge)}
+  .hub{align-self:center; text-align:center; padding:1rem 1.2rem; border-radius:12px;
+    background:var(--fact-soft); border:1.5px solid var(--fact); min-width:170px}
+  .hub .mono{font-size:.92rem; font-weight:500; color:var(--fact); display:block}
+  .hub small{color:var(--ink-faint); font-size:.72rem}
+  .arrow{color:var(--ink-faint); text-align:center; font-size:1.3rem; line-height:1}
+  .metric-strip{grid-column:1/-1; margin-top:.4rem; padding-top:1rem; border-top:1px dashed var(--line);
+    display:flex; flex-wrap:wrap; align-items:center; gap:.5rem}
+  .metric-strip .lbl{font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; color:var(--metric); font-weight:600; margin-right:.3rem}
+  .node.metric{border-left:3px solid var(--metric)}
+
+  /* legend */
+  .legend{display:flex; flex-wrap:wrap; gap:1rem 1.4rem; margin:1rem 0 0; font-size:.84rem; color:var(--ink-soft)}
+  .legend span{display:inline-flex; align-items:center; gap:.45rem}
+
+  /* entity grid */
+  .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(272px,1fr)); gap:1rem}
+  .card{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column}
+  .card-head{padding:.7rem .9rem; display:flex; align-items:center; gap:.55rem; border-bottom:1px solid var(--line)}
+  .card-head .mono{font-size:.9rem; font-weight:500}
+  .card[data-layer=dim] .card-head{background:var(--dim-soft)}
+  .card[data-layer=fact] .card-head{background:var(--fact-soft)}
+  .card[data-layer=bridge] .card-head{background:var(--bridge-soft)}
+  .card[data-layer=metric] .card-head{background:var(--metric-soft)}
+  .card[data-layer=dim] .card-head .mono{color:var(--dim)}
+  .card[data-layer=fact] .card-head .mono{color:var(--fact)}
+  .card[data-layer=bridge] .card-head .mono{color:var(--bridge)}
+  .card[data-layer=metric] .card-head .mono{color:var(--metric)}
+  .card.wide{grid-column:span 2}
+  @media(max-width:620px){.card.wide{grid-column:span 1}}
+  .cmt{padding:.5rem .9rem; color:var(--ink-faint); font-size:.8rem; border-bottom:1px solid var(--line)}
+  ul.cols{list-style:none; margin:0; padding:.35rem 0; font-family:"IBM Plex Mono",monospace; font-size:.78rem}
+  ul.cols li{display:flex; align-items:center; gap:.5rem; padding:.18rem .9rem}
+  ul.cols li .tag{font-size:.6rem; font-weight:600; letter-spacing:.04em; padding:.05rem .32rem; border-radius:4px; flex:none;
+    font-family:"IBM Plex Sans",sans-serif}
+  .tag.pk{background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent)}
+  .tag.fk{background:transparent; color:var(--ink-faint); border:1px solid var(--line)}
+  .col-name{color:var(--ink)}
+  li.measure .col-name{color:var(--ink)}
+  .type{margin-left:auto; color:var(--ink-faint); font-size:.72rem}
+
+  /* panels */
+  .panels{display:grid; grid-template-columns:1fr 1fr; gap:1rem}
+  @media(max-width:760px){.panels{grid-template-columns:1fr}}
+  .panel{background:var(--surface); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:1.15rem 1.25rem}
+  .panel h3{font-size:1.02rem; font-weight:600; margin:0 0 .7rem}
+  .join{font-family:"IBM Plex Mono",monospace; font-size:.8rem; color:var(--ink-soft); padding:.35rem 0; border-bottom:1px dashed var(--line); display:flex; gap:.5rem; align-items:baseline}
+  .join:last-child{border-bottom:none}
+  .join b{color:var(--accent); font-weight:500}
+  .deid{background:var(--fact-soft); border:1px solid var(--fact); border-radius:var(--radius); padding:1.15rem 1.25rem; margin-top:1rem}
+  .deid h3{color:var(--fact); font-size:1.02rem; margin:0 0 .55rem; font-weight:600}
+  .deid ul{margin:.2rem 0 0; padding-left:1.1rem; color:var(--ink-soft); font-size:.9rem}
+  .deid li{margin:.2rem 0}
+  .deid .mono{color:var(--ink); font-size:.82rem}
+
+  .themes{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:.8rem}
+  .theme{border:1px solid var(--line); border-radius:12px; padding:.9rem 1rem; background:var(--surface)}
+  .theme h4{margin:0 0 .5rem; font-family:"IBM Plex Sans",sans-serif; font-size:.95rem; font-weight:600; display:flex; align-items:center; gap:.5rem}
+  .theme .obj{font-family:"IBM Plex Mono",monospace; font-size:.72rem; color:var(--ink-soft); display:block; padding:.1rem 0}
+  footer{margin-top:2.6rem; padding-top:1.2rem; border-top:1px solid var(--line); color:var(--ink-faint); font-size:.82rem}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Gold Layer · Dimensional Model</p>
+    <h1>HBSS Service Plan — Gold Data Model</h1>
+    <p class="lede">A de-identified star schema over Home Based Support Services care plans, built for a
+      Genie natural-language agent and interactive AI/BI dashboards. One central plan-grain fact, conformed
+      dimensions, an atomic bridge-fact per multi-valued attribute, and governed metric views for KPIs.</p>
+    <div class="badges">
+      <span class="badge"><span class="dot" style="background:var(--fact)"></span>Grain: <b>one row per service plan</b></span>
+      <span class="badge"><span class="dot" style="background:var(--dim)"></span><b>5</b> dimensions</span>
+      <span class="badge"><span class="dot" style="background:var(--bridge)"></span><b>8</b> bridge-facts</span>
+      <span class="badge"><span class="dot" style="background:var(--metric)"></span><b>6</b> metric views</span>
+      <span class="badge">🔒 <b>De-identified</b> for analytics</span>
+    </div>
+  </header>
+
+  <h2>At a glance</h2>
+  <p class="section-note">Facts join to dimensions on surrogate keys; every fact also carries region / funder / referral_month / vulnerability_tier for direct slicing without a join.</p>
+  <div class="schematic">
+    <div class="flow-col">
+      <h4>Dimensions</h4>
+      <span class="node dim">dim_client</span>
+      <span class="node dim">dim_care_coordinator</span>
+      <span class="node dim">dim_region</span>
+      <span class="node dim">dim_funder</span>
+      <span class="node dim">dim_date</span>
+    </div>
+    <div>
+      <div class="arrow">→</div>
+      <div class="hub"><span class="mono">fact_service_plan</span><small>plan grain · central</small></div>
+      <div class="arrow">→</div>
+    </div>
+    <div class="flow-col">
+      <h4>Bridge-facts</h4>
+      <span class="node bridge">fact_plan_condition</span>
+      <span class="node bridge">fact_plan_risk_flag</span>
+      <span class="node bridge">fact_home_safety_hazard</span>
+      <span class="node bridge">fact_support_task</span>
+      <span class="node bridge">fact_care_domain</span>
+      <span class="node bridge">fact_plan_service · _equipment · _provider_linkage</span>
+    </div>
+    <div class="metric-strip">
+      <span class="lbl">Metric views</span>
+      <span class="node metric">metric_capacity</span>
+      <span class="node metric">metric_intake_funnel</span>
+      <span class="node metric">metric_home_safety</span>
+      <span class="node metric">metric_risk_flags</span>
+      <span class="node metric">metric_dependency</span>
+      <span class="node metric">metric_clinical</span>
+    </div>
+  </div>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--dim)"></span>Dimension</span>
+    <span><span class="dot" style="background:var(--fact)"></span>Central fact</span>
+    <span><span class="dot" style="background:var(--bridge)"></span>Bridge-fact (exploded array)</span>
+    <span><span class="dot" style="background:var(--metric)"></span>Metric view (governed KPIs)</span>
+    <span><span class="tag pk" style="font-family:inherit">PK</span> primary key</span>
+    <span><span class="tag fk" style="font-family:inherit">FK</span> foreign key</span>
+  </div>
+
+  <h2>Dimensions</h2>
+  <p class="section-note">Conformed context. dim_client is a latest-snapshot per pseudonymous client; no direct identifiers.</p>
+  <div class="grid">
+    <div class="card" data-layer="dim">
+      <div class="card-head"><span class="mono">dim_client</span></div>
+      <div class="cmt">One row per de-identified client (latest snapshot).</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">client_key</span><span class="type">hash(nhi)</span></li>
+        <li><span class="col-name">gender</span></li>
+        <li><span class="col-name">age</span><span class="type">int</span></li>
+        <li><span class="col-name">age_band</span><span class="type">&lt;65 · 65–74 · 75–84 · 85+</span></li>
+        <li><span class="col-name">ethnicity</span></li>
+        <li><span class="col-name">region</span></li>
+        <li><span class="col-name">vulnerability_tier</span></li>
+        <li><span class="col-name">epoa_status</span></li>
+        <li><span class="col-name">interrai_score</span></li>
+        <li><span class="col-name">gp_name</span></li>
+        <li><span class="col-name">first_referral_date</span></li>
+        <li><span class="col-name">plan_count</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="dim">
+      <div class="card-head"><span class="mono">dim_care_coordinator</span></div>
+      <div class="cmt">Workforce dimension with caseload metrics (role/office from Bronze users).</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">coordinator_key</span></li>
+        <li><span class="col-name">care_coordinator</span></li>
+        <li><span class="col-name">primary_region</span></li>
+        <li><span class="col-name">role</span></li>
+        <li><span class="col-name">office</span></li>
+        <li><span class="col-name">active_client_count</span></li>
+        <li><span class="col-name">total_weekly_hours_assigned</span></li>
+        <li><span class="col-name">plans_managed</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="dim">
+      <div class="card-head"><span class="mono">dim_region</span></div>
+      <div class="cmt">Region reference with NZ island grouping.</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">region</span></li>
+        <li><span class="col-name">island</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="dim">
+      <div class="card-head"><span class="mono">dim_funder</span></div>
+      <div class="cmt">Funder reference (DHB / MOH / ACC).</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">funder</span></li>
+        <li><span class="col-name">funder_full_name</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="dim">
+      <div class="card-head"><span class="mono">dim_date</span></div>
+      <div class="cmt">Calendar spanning the referral/service/review range.</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">date_key</span></li>
+        <li><span class="col-name">year · quarter · month_num</span></li>
+        <li><span class="col-name">month_name · month_start</span></li>
+        <li><span class="col-name">year_month · day_of_week</span></li>
+        <li><span class="col-name">is_weekend</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Central fact</h2>
+  <p class="section-note">One row per service plan (submission). Denormalized slice attributes + precomputed acuity counts keep most questions single-table.</p>
+  <div class="grid">
+    <div class="card wide" data-layer="fact">
+      <div class="card-head"><span class="mono">fact_service_plan</span></div>
+      <div class="cmt">Plan-grain fact — the hub of the star.</div>
+      <ul class="cols">
+        <li><span class="tag pk">PK</span><span class="col-name">plan_key</span></li>
+        <li><span class="tag fk">FK</span><span class="col-name">client_key</span><span class="type">→ dim_client</span></li>
+        <li><span class="tag fk">FK</span><span class="col-name">coordinator_key</span><span class="type">→ dim_care_coordinator</span></li>
+        <li><span class="tag fk">FK</span><span class="col-name">referral_date · service_start_date · review_date</span><span class="type">→ dim_date</span></li>
+        <li><span class="col-name">referral_month</span></li>
+        <li><span class="col-name">region · funder · contract_type</span></li>
+        <li><span class="col-name">vulnerability_tier · age_band</span></li>
+        <li><span class="col-name">weekly_care_hours</span><span class="type">measure</span></li>
+        <li><span class="col-name">package_of_care_hours · interrai_score</span><span class="type">measure</span></li>
+        <li><span class="col-name">days_referral_to_start</span><span class="type">measure</span></li>
+        <li><span class="col-name">manual_handling_plan_completed</span><span class="type">bool</span></li>
+        <li><span class="col-name">pressure_area_plan_completed</span><span class="type">bool</span></li>
+        <li><span class="col-name">num_conditions · num_risk_flags</span><span class="type">acuity</span></li>
+        <li><span class="col-name">num_high_safety_hazards · num_dependent_tasks</span><span class="type">acuity</span></li>
+        <li><span class="col-name">submitter_email · ingestion_timestamp</span><span class="type">ops</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Bridge-facts</h2>
+  <p class="section-note">Each multi-valued attribute on the plan is exploded to its own atomic fact — so Genie writes simple <code>GROUP BY</code>s and AI/BI charts aggregate directly. All share the keys plan_key, client_key + region · funder · referral_month · vulnerability_tier.</p>
+  <div class="grid">
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_plan_condition</span></div>
+      <div class="cmt">Plan × primary health condition.</div>
+      <ul class="cols"><li><span class="col-name">+ primary_condition</span></li></ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_plan_risk_flag</span></div>
+      <div class="cmt">Plan × risk flag (+ plan completion flags).</div>
+      <ul class="cols">
+        <li><span class="col-name">+ risk_flag</span></li>
+        <li><span class="col-name">manual_handling_plan_completed</span></li>
+        <li><span class="col-name">pressure_area_plan_completed</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_home_safety_hazard</span></div>
+      <div class="cmt">Plan × Home Safety hazard row.</div>
+      <ul class="cols">
+        <li><span class="col-name">+ hazard</span></li>
+        <li><span class="col-name">is_present</span><span class="type">bool</span></li>
+        <li><span class="col-name">risk_rating</span><span class="type">H · M · L</span></li>
+        <li><span class="col-name">strategy</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_support_task</span></div>
+      <div class="cmt">Plan × ADL task (Household + Personal grids).</div>
+      <ul class="cols">
+        <li><span class="col-name">support_type</span><span class="type">Household · Personal</span></li>
+        <li><span class="col-name">action</span></li>
+        <li><span class="col-name">dependency_level</span><span class="type">Dep · Assist · Indep · N/A</span></li>
+        <li><span class="col-name">is_dependent</span><span class="type">bool</span></li>
+        <li><span class="col-name">details</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_care_domain</span></div>
+      <div class="cmt">Plan × care-plan domain (15 domains).</div>
+      <ul class="cols">
+        <li><span class="col-name">domain · goal · comments</span></li>
+        <li><span class="col-name">has_goal · has_comments</span><span class="type">coverage</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_plan_service</span></div>
+      <div class="cmt">Plan × required service (+ weekly hours).</div>
+      <ul class="cols"><li><span class="col-name">+ service · weekly_care_hours</span></li></ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_plan_equipment</span></div>
+      <div class="cmt">Plan × allied-health equipment item.</div>
+      <ul class="cols"><li><span class="col-name">+ equipment</span></li></ul>
+    </div>
+    <div class="card" data-layer="bridge">
+      <div class="card-head"><span class="mono">fact_provider_linkage</span></div>
+      <div class="cmt">Plan × external provider engagement.</div>
+      <ul class="cols">
+        <li><span class="col-name">provider · status</span></li>
+        <li><span class="col-name">is_engaged</span><span class="type">bool</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Metric views — governed KPIs</h2>
+  <p class="section-note">One canonical definition per KPI, consumed identically by Genie and AI/BI. Query measures with <code>MEASURE()</code>.</p>
+  <div class="grid">
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_capacity</span></div>
+      <div class="cmt">on fact_service_plan · Capacity &amp; workforce</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Total / Avg Weekly Hours</span></li>
+        <li class="measure"><span class="col-name">Plan Count · Client Count</span></li>
+        <li class="measure"><span class="col-name">Avg Package Hours · Avg InterRAI</span></li>
+        <li class="measure"><span class="col-name">Plans Incomplete Manual Handling / Pressure</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_intake_funnel</span></div>
+      <div class="cmt">on fact_service_plan · Intake &amp; funnel</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Plans Referred · Plans Started</span></li>
+        <li class="measure"><span class="col-name">Start Rate</span></li>
+        <li class="measure"><span class="col-name">Avg Days To Start</span></li>
+        <li class="measure"><span class="col-name">Reviews Due Next 90 Days</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_home_safety</span></div>
+      <div class="cmt">on fact_home_safety_hazard · Risk &amp; safety</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Hazards Present · High Risk Hazards</span></li>
+        <li class="measure"><span class="col-name">Pct Hazards Present</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_risk_flags</span></div>
+      <div class="cmt">on fact_plan_risk_flag · Risk &amp; compliance</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Plans With Flag · Flag Occurrences</span></li>
+        <li class="measure"><span class="col-name">Flags With Incomplete Manual Handling</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_dependency</span></div>
+      <div class="cmt">on fact_support_task · Dependency</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Task Rows · Dependent Tasks</span></li>
+        <li class="measure"><span class="col-name">Pct Dependent</span></li>
+      </ul>
+    </div>
+    <div class="card" data-layer="metric">
+      <div class="card-head"><span class="mono">metric_clinical</span></div>
+      <div class="cmt">on fact_plan_condition · Clinical</div>
+      <ul class="cols">
+        <li class="measure"><span class="col-name">Client Count · Plan Count</span></li>
+        <li class="measure"><span class="col-name">Condition Occurrences</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>How it joins &amp; what it protects</h2>
+  <div class="panels">
+    <div class="panel">
+      <h3>Relationships</h3>
+      <div class="join"><b>fact.client_key</b> = dim_client.client_key</div>
+      <div class="join"><b>fact.coordinator_key</b> = dim_care_coordinator.coordinator_key</div>
+      <div class="join"><b>fact.{referral,service_start,review}_date</b> = dim_date.date_key</div>
+      <div class="join"><b>fact.region</b> = dim_region.region</div>
+      <div class="join"><b>fact.funder</b> = dim_funder.funder</div>
+      <div class="join"><b>bridge.plan_key</b> = fact_service_plan.plan_key</div>
+    </div>
+    <div class="deid" style="margin-top:0">
+      <h3>🔒 De-identification (client PII)</h3>
+      <ul>
+        <li>Clients keyed by <span class="mono">client_key = sha2(nhi)</span> — no NHI, names, address, phone, email or emergency contacts reach Gold.</li>
+        <li>Date of birth → <span class="mono">age</span> + <span class="mono">age_band</span> only.</li>
+        <li>Care-coordinator &amp; GP names retained (staff / provider) for workforce and provider analysis.</li>
+        <li>Silver keeps the full record for operational/audit use; Gold is the shared analytics boundary.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Analytical themes → objects</h2>
+  <div class="themes">
+    <div class="theme">
+      <h4><span class="dot" style="background:var(--fact)"></span>Capacity &amp; workforce</h4>
+      <span class="obj">metric_capacity</span>
+      <span class="obj">fact_service_plan</span>
+      <span class="obj">dim_care_coordinator</span>
+    </div>
+    <div class="theme">
+      <h4><span class="dot" style="background:var(--fact)"></span>Intake &amp; funnel</h4>
+      <span class="obj">metric_intake_funnel</span>
+      <span class="obj">fact_service_plan · dim_date</span>
+    </div>
+    <div class="theme">
+      <h4><span class="dot" style="background:var(--bridge)"></span>Risk, safety &amp; compliance</h4>
+      <span class="obj">metric_home_safety · metric_risk_flags</span>
+      <span class="obj">fact_home_safety_hazard</span>
+      <span class="obj">fact_plan_risk_flag</span>
+    </div>
+    <div class="theme">
+      <h4><span class="dot" style="background:var(--bridge)"></span>Clinical &amp; dependency</h4>
+      <span class="obj">metric_clinical · metric_dependency</span>
+      <span class="obj">fact_plan_condition · fact_support_task</span>
+      <span class="obj">fact_plan_equipment</span>
+    </div>
+  </div>
+
+  <footer>
+    Gold layer of the Doc Processing bundle · source: <code>silver.service_plan_extracted</code> ·
+    consumed by the Genie Agent and AI/BI dashboards · all data synthetic.
+  </footer>
+</div>
