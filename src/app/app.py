@@ -19,6 +19,10 @@ try:
 except ImportError:
     HAS_FLASK_REQUEST = False
 
+# Client logo (Geneva Healthcare), embedded as a self-contained base64 data URI so the
+# app never depends on static-asset serving.
+from brand_assets import GENEVA_LOGO_URI
+
 # --- Configuration from Environment ---
 # All of these are injected by the bundle app resource (resources/app.yml), which
 # sources them from config.yml. The app never hardcodes ids.
@@ -110,15 +114,15 @@ CUSTOM_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 body {
     font-family: 'Inter', sans-serif !important;
-    background: linear-gradient(135deg, #0a0e1a 0%, #1a1f3a 50%, #0d1525 100%) !important;
+    background: linear-gradient(135deg, #0a0e1a 0%, #0f2438 50%, #0d1525 100%) !important;
     min-height: 100vh;
     color: #e0e0e0;
 }
 .gradient-header {
-    background: linear-gradient(90deg, #00b4d8 0%, #0077b6 40%, #6c63ff 100%);
+    background: linear-gradient(90deg, #2FA9E0 0%, #1E88C7 40%, #3FB6A8 100%);
     padding: 20px 40px;
     border-radius: 0 0 20px 20px;
-    box-shadow: 0 4px 30px rgba(0, 180, 216, 0.3);
+    box-shadow: 0 4px 30px rgba(47, 169, 224, 0.3);
     margin-bottom: 30px;
     color: white;
 }
@@ -132,11 +136,11 @@ body {
 }
 .glass-card:hover {
     transform: translateY(-2px);
-    box-shadow: 0 12px 40px rgba(0, 180, 216, 0.15) !important;
+    box-shadow: 0 12px 40px rgba(47, 169, 224, 0.15) !important;
 }
 .welcome-banner {
-    background: rgba(0, 180, 216, 0.1);
-    border-left: 4px solid #00b4d8;
+    background: rgba(47, 169, 224, 0.1);
+    border-left: 4px solid #2FA9E0;
     padding: 16px;
     border-radius: 8px;
     color: #e0e0e0;
@@ -144,13 +148,13 @@ body {
 .welcome-banner .welcome-title {
     font-size: 1.3rem;
     font-weight: 600;
-    color: #00b4d8;
+    color: #2FA9E0;
     margin-bottom: 4px;
 }
 .metric-value {
     font-size: 2.5rem;
     font-weight: 700;
-    background: linear-gradient(135deg, #00b4d8, #6c63ff);
+    background: linear-gradient(135deg, #2FA9E0, #3FB6A8);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
@@ -170,12 +174,12 @@ body {
     font-size: 0.75rem; font-weight: 600;
 }
 .status-badge-ingested {
-    background: linear-gradient(135deg, #00b4d8, #0077b6);
+    background: linear-gradient(135deg, #2FA9E0, #1E88C7);
     color: #fff; padding: 4px 12px; border-radius: 20px;
     font-size: 0.75rem; font-weight: 600;
 }
 .chat-bubble-user {
-    background: linear-gradient(135deg, #0077b6, #00b4d8);
+    background: linear-gradient(135deg, #1E88C7, #2FA9E0);
     color: white; padding: 12px 18px;
     border-radius: 18px 18px 4px 18px;
     margin: 8px 0; max-width: 75%; margin-left: auto;
@@ -195,20 +199,20 @@ body {
     padding: 12px 24px; transition: all 0.3s ease;
 }
 .nav-tabs .nav-link.active {
-    color: #00b4d8 !important;
-    background: rgba(0, 180, 216, 0.1) !important;
-    border-bottom: 3px solid #00b4d8 !important;
+    color: #2FA9E0 !important;
+    background: rgba(47, 169, 224, 0.1) !important;
+    border-bottom: 3px solid #2FA9E0 !important;
     border-radius: 8px 8px 0 0;
 }
 .upload-zone {
-    border: 2px dashed rgba(0, 180, 216, 0.4) !important;
+    border: 2px dashed rgba(47, 169, 224, 0.4) !important;
     border-radius: 16px; padding: 40px; text-align: center;
-    background: rgba(0, 180, 216, 0.03);
+    background: rgba(47, 169, 224, 0.03);
     transition: all 0.3s ease;
 }
 .upload-zone:hover {
-    border-color: #00b4d8 !important;
-    background: rgba(0, 180, 216, 0.08);
+    border-color: #2FA9E0 !important;
+    background: rgba(47, 169, 224, 0.08);
 }
 .collapsible-files {
     margin-top: 8px;
@@ -219,7 +223,7 @@ body {
 }
 .collapsible-files summary {
     cursor: pointer;
-    color: #00b4d8;
+    color: #2FA9E0;
     font-weight: 500;
 }
 .collapsible-files ul {
@@ -242,9 +246,92 @@ body {
     text-align: left;
 }
 .submission-row-btn:hover {
-    background: rgba(0, 180, 216, 0.1);
-    border-color: rgba(0, 180, 216, 0.4);
+    background: rgba(47, 169, 224, 0.1);
+    border-color: rgba(47, 169, 224, 0.4);
     transform: translateY(-1px);
+}
+"""
+
+# --- Brand + motion layer (Geneva Healthcare) ---
+# Layered on top of CUSTOM_CSS: adds tasteful animation, the logo chip, the KPI
+# ribbon, a live status dot, and loading/typing feedback. Respects reduced-motion.
+BRAND_CSS = """
+:root{
+  --geneva-blue:#2FA9E0; --geneva-deep:#1E88C7; --geneva-teal:#3FB6A8;
+  --geneva-amber:#F2994A; --geneva-heart:#E84C4C;
+}
+@keyframes fadeInUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes auroraShift{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}
+@keyframes livePulse{0%{box-shadow:0 0 0 0 rgba(63,182,168,.55)}70%{box-shadow:0 0 0 8px rgba(63,182,168,0)}100%{box-shadow:0 0 0 0 rgba(63,182,168,0)}}
+@keyframes typingBlink{0%,80%,100%{opacity:.2;transform:translateY(0)}40%{opacity:1;transform:translateY(-3px)}}
+@keyframes floatSoft{0%{transform:translateY(0)}50%{transform:translateY(-4px)}100%{transform:translateY(0)}}
+
+/* Animated brand header */
+.gradient-header{
+  background:linear-gradient(120deg,#2FA9E0 0%,#3FB6A8 34%,#1E88C7 68%,#2FA9E0 100%) !important;
+  background-size:220% 220% !important;
+  animation:auroraShift 16s ease infinite;
+}
+/* Logo chip so the white-ground brand mark reads cleanly on the header */
+.brand-logo{
+  background:#ffffff; border-radius:14px; padding:10px 16px;
+  box-shadow:0 6px 18px rgba(0,0,0,.18); display:inline-flex; align-items:center;
+}
+.brand-logo img{height:42px; width:auto; display:block}
+
+/* Staggered entrance for cards / banners / KPI tiles */
+.glass-card, .welcome-banner, .kpi-card{animation:fadeInUp .5s ease both}
+.kpi-card:nth-child(2){animation-delay:.06s}
+.kpi-card:nth-child(3){animation-delay:.12s}
+.kpi-card:nth-child(4){animation-delay:.18s}
+
+/* Live status dot */
+.live-dot{width:9px;height:9px;border-radius:50%;background:#eafff8;display:inline-block;
+  margin-right:7px;animation:livePulse 2.2s infinite}
+
+/* KPI ribbon */
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;
+  padding:0 20px;margin:-8px 0 26px}
+.kpi-card{position:relative;overflow:hidden;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px 20px;
+  backdrop-filter:blur(10px);transition:transform .2s ease,box-shadow .2s ease}
+.kpi-card:hover{transform:translateY(-3px);box-shadow:0 12px 34px rgba(47,169,224,.16)}
+.kpi-card::before{content:"";position:absolute;left:0;top:0;height:100%;width:4px}
+.kpi-card.k-blue::before{background:linear-gradient(#2FA9E0,#1E88C7)}
+.kpi-card.k-teal::before{background:linear-gradient(#3FB6A8,#2FA9E0)}
+.kpi-card.k-amber::before{background:linear-gradient(#F2994A,#F2C94C)}
+.kpi-card.k-heart::before{background:linear-gradient(#E84C4C,#F2994A)}
+.kpi-icon{font-size:1.35rem;opacity:.9;margin-bottom:6px}
+.kpi-card.k-blue .kpi-icon{color:#5cc0ef}
+.kpi-card.k-teal .kpi-icon{color:#5fd3c4}
+.kpi-card.k-amber .kpi-icon{color:#f6b26b}
+.kpi-card.k-heart .kpi-icon{color:#f2807e}
+.kpi-value{font-size:2rem;font-weight:700;line-height:1.05;
+  background:linear-gradient(135deg,#2FA9E0,#3FB6A8);-webkit-background-clip:text;
+  -webkit-text-fill-color:transparent;font-variant-numeric:tabular-nums}
+.kpi-label{color:rgba(255,255,255,.6);font-size:.8rem;font-weight:500;margin-top:2px;
+  letter-spacing:.02em}
+
+/* Buttons: gentle lift + press */
+.btn{transition:transform .12s ease, box-shadow .2s ease, filter .2s ease !important}
+.btn:hover{filter:brightness(1.06)}
+.btn:active{transform:scale(.97)}
+
+/* Upload zone: soft breathing icon */
+.upload-zone .bi-cloud-arrow-up{animation:floatSoft 3.5s ease-in-out infinite}
+
+/* Genie typing indicator */
+.typing{display:inline-flex;gap:5px;padding:12px 18px}
+.typing span{width:8px;height:8px;border-radius:50%;background:#5fd3c4;
+  animation:typingBlink 1.3s infinite}
+.typing span:nth-child(2){animation-delay:.18s}
+.typing span:nth-child(3){animation-delay:.36s}
+
+/* Loading spinner tint */
+._dash-loading-callback,._dash-loading{color:#3FB6A8}
+
+@media (prefers-reduced-motion: reduce){
+  *{animation:none !important; transition:none !important}
 }
 """
 
@@ -272,6 +359,7 @@ app.index_string = f"""
         {{%css%}}
         <style>
         {CUSTOM_CSS}
+        {BRAND_CSS}
         </style>
     </head>
     <body>
@@ -541,20 +629,23 @@ def build_header():
     return html.Div([
         html.Div([
             html.Div([
+                # Client logo in a white chip so the brand mark reads on the header.
                 html.Div(
-                    [html.I(className="bi bi-file-earmark-pdf", style={"fontSize": "2.5rem"})],
+                    html.Img(src=GENEVA_LOGO_URI, alt="Geneva Healthcare"),
+                    className="brand-logo",
                     style={"marginRight": "20px"}
                 ),
                 html.Div([
                     html.H2(
-                        "GENEVA HEALTHCARE Document Intelligence",
+                        "Document Intelligence",
                         className="mb-0",
                         style={"fontWeight": "700", "letterSpacing": "-0.5px"}
                     ),
                     html.P(
-                        "Home Based Support Services - AI-Powered Document Processing",
+                        [html.Span(className="live-dot"),
+                         "Home Based Support Services · AI-powered document processing"],
                         className="mb-0",
-                        style={"opacity": "0.85", "fontSize": "0.9rem"}
+                        style={"opacity": "0.9", "fontSize": "0.9rem", "display": "flex", "alignItems": "center"}
                     )
                 ])
             ], style={"display": "flex", "alignItems": "center"}),
@@ -578,6 +669,51 @@ def build_header():
     ], className="gradient-header")
 
 
+def get_submission_stats():
+    """Overview counts for the KPI ribbon: total documents, processed, pending, rate."""
+    stats = {"total": 0, "processed": 0, "pending": 0, "rate": 0}
+    try:
+        if not DATABRICKS_WAREHOUSE_ID:
+            return stats
+        q = f"""
+        SELECT
+          (SELECT COUNT(DISTINCT file_path) FROM {CATALOG}.{BRONZE_SCHEMA}.document_submissions) AS total,
+          (SELECT COUNT(DISTINCT file_path) FROM {CATALOG}.{SILVER_SCHEMA}.service_plan_extracted) AS processed
+        """
+        res = run_sql(q)
+        if res.result and res.result.data_array:
+            total = int(res.result.data_array[0][0] or 0)
+            processed = int(res.result.data_array[0][1] or 0)
+            stats = {
+                "total": total,
+                "processed": processed,
+                "pending": max(total - processed, 0),
+                "rate": round(100 * processed / total) if total else 0,
+            }
+    except Exception as e:
+        print(f"Error fetching stats: {e}")
+    return stats
+
+
+def _kpi_card(icon, value, label, tone):
+    return html.Div([
+        html.Div(html.I(className=f"bi {icon}"), className="kpi-icon"),
+        html.Div(str(value), className="kpi-value"),
+        html.Div(label, className="kpi-label"),
+    ], className=f"kpi-card {tone}")
+
+
+def build_kpi_cards():
+    """The KPI ribbon cards (returned as a list so the refresh callback can swap them)."""
+    s = get_submission_stats()
+    return [
+        _kpi_card("bi-files", s["total"], "Documents Submitted", "k-blue"),
+        _kpi_card("bi-check2-circle", s["processed"], "Processed", "k-teal"),
+        _kpi_card("bi-hourglass-split", s["pending"], "Awaiting Processing", "k-amber"),
+        _kpi_card("bi-graph-up-arrow", f"{s['rate']}%", "Processing Rate", "k-heart"),
+    ]
+
+
 def build_tab1():
     """Submit & Track tab."""
     user = get_current_user()
@@ -587,7 +723,7 @@ def build_tab1():
                 html.Div([
                     html.Div([
                         html.Span("Welcome back, ", style={"fontSize": "1.1rem"}),
-                        html.Span(user['name'], style={"fontSize": "1.1rem", "fontWeight": "600", "color": "#00b4d8"})
+                        html.Span(user['name'], style={"fontSize": "1.1rem", "fontWeight": "600", "color": "#2FA9E0"})
                     ], style={"marginBottom": "8px"}),
                     html.Span(
                         f"Submit GENEVA HEALTHCARE PDFs for processing. Logged in as {user['email']}",
@@ -604,7 +740,7 @@ def build_tab1():
                         dcc.Upload(
                             id="upload-pdf",
                             children=html.Div([
-                                html.I(className="bi bi-cloud-arrow-up", style={"fontSize": "3rem", "color": "#00b4d8"}),
+                                html.I(className="bi bi-cloud-arrow-up", style={"fontSize": "3rem", "color": "#2FA9E0"}),
                                 html.P("Drag & drop PDF files here", className="mt-2 mb-1", style={"fontWeight": "500"}),
                                 html.P("or click to browse", style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem"})
                             ]),
@@ -620,7 +756,7 @@ def build_tab1():
                 dbc.Card([
                     dbc.CardBody([
                         html.H5("My Submissions", className="mb-3", style={"fontWeight": "600"}),
-                        html.Div(id="submissions-table")
+                        dcc.Loading(html.Div(id="submissions-table"), type="dot", color="#3FB6A8", delay_show=350)
                     ])
                 ], className="glass-card mb-4", style={"minHeight": "350px"})
             ], md=7)
@@ -665,7 +801,7 @@ def build_tab2():
                                 style={
                                     "borderRadius": "12px",
                                     "fontWeight": "600",
-                                    "background": "linear-gradient(135deg, #0077b6, #00b4d8)",
+                                    "background": "linear-gradient(135deg, #1E88C7, #2FA9E0)",
                                     "border": "none"
                                 }
                             )
@@ -680,7 +816,7 @@ def build_tab2():
                 dbc.Card([
                     dbc.CardBody([
                         html.H5("Recent Pipeline Runs", className="mb-3", style={"fontWeight": "600"}),
-                        html.Div(id="runs-table")
+                        dcc.Loading(html.Div(id="runs-table"), type="dot", color="#3FB6A8", delay_show=350)
                     ])
                 ], className="glass-card")
             ])
@@ -703,21 +839,24 @@ def build_tab3():
                         style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem", "marginBottom": "0"}
                     )
                 ], className="mb-3"),
-                html.Div(
-                    id="chat-messages",
-                    style={
-                        "height": "450px", "overflowY": "auto", "padding": "20px",
-                        "borderRadius": "12px", "background": "rgba(0,0,0,0.2)",
-                        "border": "1px solid rgba(255,255,255,0.05)"
-                    },
-                    children=[
-                        html.Div([
-                            html.Div(
-                                "Hi! I'm your Service Plan Intelligence assistant. Ask me anything about your documents - client details, care hours, conditions, funders, and more!",
-                                className="chat-bubble-genie"
-                            )
-                        ])
-                    ]
+                dcc.Loading(
+                    type="dot", color="#3FB6A8", delay_show=350,
+                    children=html.Div(
+                        id="chat-messages",
+                        style={
+                            "height": "450px", "overflowY": "auto", "padding": "20px",
+                            "borderRadius": "12px", "background": "rgba(0,0,0,0.2)",
+                            "border": "1px solid rgba(255,255,255,0.05)"
+                        },
+                        children=[
+                            html.Div([
+                                html.Div(
+                                    "Kia ora! I'm your Service Plan Intelligence assistant. Ask me anything about care hours, funding, conditions, risk and safety, or ADL dependency across your plans.",
+                                    className="chat-bubble-genie"
+                                )
+                            ])
+                        ]
+                    )
                 ),
                 html.Div([
                     dbc.InputGroup([
@@ -738,7 +877,7 @@ def build_tab3():
                             color="info",
                             style={
                                 "borderRadius": "0 12px 12px 0",
-                                "background": "linear-gradient(135deg, #0077b6, #00b4d8)",
+                                "background": "linear-gradient(135deg, #1E88C7, #2FA9E0)",
                                 "border": "none",
                                 "width": "50px"
                             }
@@ -759,6 +898,11 @@ def serve_layout():
         dcc.Store(id="conversation-store", data={"conversation_id": None, "messages": []}),
         dcc.Store(id="user-store", data=get_current_user()),
         build_header(),
+        # Live KPI ribbon (overview across all tabs; refreshes on the interval).
+        dcc.Loading(
+            html.Div(build_kpi_cards(), id="kpi-strip", className="kpi-strip"),
+            type="dot", color="#3FB6A8", delay_show=350,
+        ),
         dbc.Tabs([
             dbc.Tab(build_tab1(), label="Submit & Track", tab_id="tab-1", label_style={"fontSize": "0.9rem"}),
             dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", label_style={"fontSize": "0.9rem"}),
@@ -771,6 +915,15 @@ app.layout = serve_layout
 
 
 # --- Callbacks ---
+
+@callback(
+    Output("kpi-strip", "children"),
+    Input("refresh-interval", "n_intervals"),
+)
+def refresh_kpis(n):
+    """Keep the KPI ribbon live as documents are submitted/processed."""
+    return build_kpi_cards()
+
 
 @callback(
     Output("upload-status", "children"),
@@ -847,7 +1000,7 @@ def refresh_submissions(n, user_data):
                 [
                     html.Div([
                         html.I(className="bi bi-file-earmark-pdf",
-                               style={"fontSize": "1.3rem", "color": "#00b4d8", "marginRight": "12px"}),
+                               style={"fontSize": "1.3rem", "color": "#2FA9E0", "marginRight": "12px"}),
                         html.Div([
                             html.Div(r["File Name"], style={
                                 "fontWeight": "600", "fontSize": "0.85rem", "wordBreak": "break-all"}),
@@ -1001,7 +1154,7 @@ def refresh_runs(n, _):
                 html.Details([
                     html.Summary(
                         [html.I(className="bi bi-file-pdf me-2"), f"{run['files_count']} file(s) processed"],
-                        style={"cursor": "pointer", "color": "#00b4d8", "fontWeight": "500"}
+                        style={"cursor": "pointer", "color": "#2FA9E0", "fontWeight": "500"}
                     ),
                     html.Ul(file_items, style={"marginTop": "8px"})
                 ], className="collapsible-files")
@@ -1105,7 +1258,7 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
                 if query_sql:
                     reply_parts.append(
                         html.Details([
-                            html.Summary("SQL Query", style={"cursor": "pointer", "color": "#00b4d8"}),
+                            html.Summary("SQL Query", style={"cursor": "pointer", "color": "#2FA9E0"}),
                             html.Code(query_sql, style={"fontSize": "0.8rem", "whiteSpace": "pre-wrap"})
                         ], className="mt-2")
                     )
@@ -1119,7 +1272,7 @@ def handle_chat(n_clicks, n_submit, message, conv_data, current_messages):
                                 data=df.head(20).to_dict("records"),
                                 columns=[{"name": c, "id": c} for c in df.columns],
                                 style_header={
-                                    "background": "rgba(0,180,216,0.15)",
+                                    "background": "rgba(47,169,224,0.15)",
                                     "color": "white",
                                     "fontWeight": "600"
                                 },

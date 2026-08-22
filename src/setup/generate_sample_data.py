@@ -130,6 +130,16 @@ spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{volume_name}"
 
 print("Catalog, schemas, and volume created successfully!")
 
+# Enable Predictive Optimization so Databricks automatically runs OPTIMIZE / VACUUM and
+# liquid-clustering maintenance on every table in this catalog — no manual upkeep jobs.
+# Best-effort: needs metastore/account support + permission; harmless if already on.
+try:
+    spark.sql(f"ALTER CATALOG {catalog} ENABLE PREDICTIVE OPTIMIZATION")
+    print(f"Predictive Optimization enabled on catalog {catalog}.")
+except Exception as e:
+    print(f"NOTE: could not enable Predictive Optimization on {catalog} "
+          f"(may already be on by default, or needs account settings): {e}")
+
 # Grant the Databricks App's service principal read access so its queries work.
 # (The app runs as its own SP; without SELECT it silently returns empty tables.)
 if app_principal:

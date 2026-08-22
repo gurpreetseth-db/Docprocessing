@@ -167,6 +167,33 @@ encodes the submitter's email (`@`→`_at_`, `.`→`_dot_`). Bronze parses the f
 into `submitter_email` + `submission_id` so each submission is attributed to a user.
 (Legacy flat names `{email_slug}__{submission_id}__service_plan.pdf` are still supported.)
 
+## Performance & incremental processing
+
+The pipeline only ever processes **new** files — the expensive AI functions never re-run
+over the whole corpus:
+
+- **Bronze** streaming tables use Auto Loader, which checkpoints processed files and
+  ingests only new ones.
+- **Silver** `parsed_documents` and `service_plan_extracted` are **streaming tables**, so
+  `ai_parse_document` and the `ai_query` (Claude) extraction run **once per new document**
+  and append — not on every run.
+- **Gold** materialized views refresh incrementally (Enzyme) over the appended rows.
+- **Delta layout:** liquid clustering (`CLUSTER BY`) on common filter/join columns
+  (region, referral_month, nhi, submitter_email) across Bronze/Silver/Gold; the setup job
+  enables **Predictive Optimization** on the catalog so `OPTIMIZE`/`VACUUM`/clustering
+  maintenance is automatic.
+
+**Re-processing everything on purpose.** Because Silver is incremental, changing the
+extraction prompt/schema only affects *new* documents. To re-run the AI over **all**
+existing documents (e.g. after editing `02_silver_processing.sql`), do a full refresh:
+
+```bash
+# 1) Full refresh of the pipeline — re-parses + re-extracts EVERY document, rebuilds Gold
+databricks bundle run doc_processing_pipeline -t dev -p docprocessing --full-refresh-all
+# 2) Rebuild the metric views + refresh the Genie agent afterwards
+databricks bundle run doc_processing_job -t dev -p docprocessing
+```
+
 ## Roadmap
 
 - **Unity Catalog Metric Views** — governed business metrics (care capacity & hours, intake

@@ -21,6 +21,7 @@
 
 -- DBTITLE 1,dim_client (latest snapshot per client, de-identified)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.dim_client
+CLUSTER BY (region)
 COMMENT 'Client dimension (de-identified): one row per pseudonymous client_key with latest demographics, region, vulnerability and aggregated plan history. No direct identifiers.'
 AS
 WITH ranked AS (
@@ -159,6 +160,7 @@ FROM cal;
 
 -- DBTITLE 1,fact_service_plan (central plan-grain fact)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_service_plan
+CLUSTER BY (region, referral_month)
 COMMENT 'Central fact: one row per service plan (submission). FKs to client/coordinator/date; slice attributes denormalized; acuity counts precomputed.'
 AS SELECT
   sha2(file_path, 256)         AS plan_key,
@@ -205,6 +207,7 @@ FROM ${catalog}.${silver_schema}.service_plan_extracted;
 
 -- DBTITLE 1,fact_plan_condition (plan × primary condition)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_plan_condition
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and primary health condition. Use for condition prevalence.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -221,6 +224,7 @@ WHERE condition IS NOT NULL;
 
 -- DBTITLE 1,fact_plan_risk_flag (plan × risk flag)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_plan_risk_flag
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and risk flag. Use for risk-flag prevalence and co-occurrence with incomplete plans.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -239,6 +243,7 @@ WHERE risk_flag IS NOT NULL;
 
 -- DBTITLE 1,fact_home_safety_hazard (plan × hazard)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_home_safety_hazard
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and Home Safety Risk Assessment hazard, with present flag, H/M/L rating and mitigation strategy.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -258,6 +263,7 @@ WHERE h.hazard IS NOT NULL;
 
 -- DBTITLE 1,fact_support_task (plan × ADL task)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_support_task
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and support task (Household + Personal grids) with the ticked dependency level. Use for ADL dependency analysis.'
 AS
 SELECT
@@ -294,6 +300,7 @@ WHERE t.action IS NOT NULL;
 
 -- DBTITLE 1,fact_care_domain (plan × care domain)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_care_domain
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and care-plan domain (15 domains) with goal/comments text and coverage flags.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -314,6 +321,7 @@ WHERE cd.domain IS NOT NULL;
 
 -- DBTITLE 1,fact_plan_service (plan × service)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_plan_service
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and required service. Use for service demand by region/funder.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -331,6 +339,7 @@ WHERE service IS NOT NULL;
 
 -- DBTITLE 1,fact_plan_equipment (plan × equipment)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_plan_equipment
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and allied-health equipment item.'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,
@@ -347,6 +356,7 @@ WHERE equipment IS NOT NULL;
 
 -- DBTITLE 1,fact_provider_linkage (plan × other provider)
 CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${gold_schema}.fact_provider_linkage
+CLUSTER BY (region)
 COMMENT 'Bridge-fact: one row per plan and external provider with engagement status (Yes/No/NA).'
 AS SELECT
   sha2(file_path, 256)  AS plan_key,

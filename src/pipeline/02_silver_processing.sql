@@ -2,7 +2,8 @@
 -- MAGIC %md
 -- MAGIC # Silver Layer - Document Parsing & Extraction
 -- MAGIC
--- MAGIC Two materialized views in ${catalog}.${silver_schema}:
+-- MAGIC Two **streaming tables** in ${catalog}.${silver_schema} (incremental — the AI
+-- MAGIC functions run only on newly-arrived documents, never the whole corpus):
 -- MAGIC
 -- MAGIC 1. **parsed_documents** - `ai_parse_document` turns each PDF into text. With
 -- MAGIC    `version 2.0` the parser emits clean **HTML tables** (`<table>…</table>`) and
@@ -26,15 +27,16 @@
 
 -- COMMAND ----------
 
-CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${silver_schema}.parsed_documents
-COMMENT "Documents parsed by AI document intelligence; text (incl. HTML tables + ☒/☐ checkboxes) extracted from PDF elements"
+CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.parsed_documents
+CLUSTER BY (file_name)
+COMMENT "Documents parsed by AI document intelligence; text (incl. HTML tables + ☒/☐ checkboxes) extracted from PDF elements. STREAMING TABLE — ai_parse_document runs ONLY on newly ingested files (each run processes new docs, never re-parses the whole corpus)."
 AS WITH parsed AS (
   SELECT
     file_path,
     file_name,
     ingestion_timestamp,
     ai_parse_document(content, map('version', '2.0')) AS parsed_struct
-  FROM raw_documents
+  FROM STREAM(${catalog}.${bronze_schema}.raw_documents)
 )
 SELECT
   file_path,
@@ -49,8 +51,9 @@ WHERE parsed_struct:error_status::string IS NULL;
 -- COMMAND ----------
 
 -- DBTITLE 1,service_plan_extracted — full-document structured extraction via ai_query
-CREATE OR REFRESH MATERIALIZED VIEW ${catalog}.${silver_schema}.service_plan_extracted
-COMMENT "Every field on the HBSS Complex Service Plan, extracted from parsed HTML via ai_query (Claude); dates normalized to DATE; joined to submitter_email"
+CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.service_plan_extracted
+CLUSTER BY (region, nhi_number)
+COMMENT "Every field on the HBSS Complex Service Plan, extracted from parsed HTML via ai_query (Claude); dates normalized to DATE; joined to submitter_email. STREAMING TABLE — the (expensive) ai_query LLM call runs ONLY on newly parsed documents. Clustered by region + nhi_number."
 AS
 WITH queried AS (
   SELECT
@@ -119,7 +122,7 @@ WITH queried AS (
       -- (per-row errors are routed out below rather than failing the pipeline).
       failOnError => false
     ) AS resp
-  FROM ${catalog}.${silver_schema}.parsed_documents pd
+  FROM STREAM(${catalog}.${silver_schema}.parsed_documents) pd
 ),
 parsed AS (
   SELECT
@@ -270,6 +273,8 @@ SELECT
   x.home_safety_risks,
   x.risk_rating_legend
 FROM parsed p
-LEFT JOIN document_submissions ds ON p.file_path = ds.file_path
+-- Stream-static join: `parsed` is the streaming side; document_submissions is read as a
+-- current snapshot (no STREAM()) purely to enrich each new plan with its submitter_email.
+LEFT JOIN ${catalog}.${bronze_schema}.document_submissions ds ON p.file_path = ds.file_path
 -- Route per-row failures out (ai_query failOnError=>false surfaces errorMessage).
 WHERE p.extract_error IS NULL AND x.nhi_number IS NOT NULL;
