@@ -14,7 +14,7 @@
 # MAGIC space with this title already exists, we leave it in place (and refresh its warehouse).
 
 # COMMAND ----------
-
+import uuid
 import json
 from databricks.sdk import WorkspaceClient
 
