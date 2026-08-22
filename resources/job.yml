@@ -26,11 +26,20 @@ resources:
         - task_key: run_document_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.doc_processing_pipeline.id}
-        # Genie space references Gold tables, so it can only be created once the
-        # pipeline has materialized them — hence this depends on the pipeline task.
-        - task_key: provision_genie
+        # Governed metric views sit on top of the Gold facts, so they run after the
+        # pipeline has materialized them.
+        - task_key: create_metric_views
           depends_on:
             - task_key: run_document_pipeline
+          notebook_task:
+            notebook_path: ../src/gold/create_metric_views.py
+            base_parameters:
+              catalog: ${var.catalog}
+              gold_schema: ${var.gold_schema}
+        # Genie references Gold tables + metric views, so it runs last.
+        - task_key: provision_genie
+          depends_on:
+            - task_key: create_metric_views
           notebook_task:
             notebook_path: ../src/setup/provision_genie.py
             base_parameters:

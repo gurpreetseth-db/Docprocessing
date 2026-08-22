@@ -55,36 +55,72 @@ if not warehouse_id:
 
 # COMMAND ----------
 
+# De-identified Gold star schema: conformed dimensions + central plan-grain fact +
+# atomic bridge-facts, plus governed metric views (KPIs). Genie natively supports
+# metric views, so we attach both the facts (flexible questions) and the metric
+# views (governed KPIs).
 GOLD_TABLES = [
+    # Dimensions
     f"{catalog}.{gold_schema}.dim_client",
     f"{catalog}.{gold_schema}.dim_care_coordinator",
+    f"{catalog}.{gold_schema}.dim_region",
+    f"{catalog}.{gold_schema}.dim_funder",
+    f"{catalog}.{gold_schema}.dim_date",
+    # Central fact
     f"{catalog}.{gold_schema}.fact_service_plan",
-    f"{catalog}.{gold_schema}.fact_service_demand_by_region",
-    f"{catalog}.{gold_schema}.fact_risk_profile",
-    f"{catalog}.{gold_schema}.agg_intake_funnel",
+    # Bridge-facts (one per multi-valued attribute)
+    f"{catalog}.{gold_schema}.fact_plan_condition",
+    f"{catalog}.{gold_schema}.fact_plan_risk_flag",
+    f"{catalog}.{gold_schema}.fact_home_safety_hazard",
+    f"{catalog}.{gold_schema}.fact_support_task",
+    f"{catalog}.{gold_schema}.fact_care_domain",
+    f"{catalog}.{gold_schema}.fact_plan_service",
+    f"{catalog}.{gold_schema}.fact_plan_equipment",
+    f"{catalog}.{gold_schema}.fact_provider_linkage",
+    # Governed metric views (KPIs)
+    f"{catalog}.{gold_schema}.metric_capacity",
+    f"{catalog}.{gold_schema}.metric_intake_funnel",
+    f"{catalog}.{gold_schema}.metric_home_safety",
+    f"{catalog}.{gold_schema}.metric_risk_flags",
+    f"{catalog}.{gold_schema}.metric_dependency",
+    f"{catalog}.{gold_schema}.metric_clinical",
 ]
 
 SAMPLE_QUESTIONS = [
+    # Capacity & workforce
     "What are the total weekly care hours by region?",
-    "Which regions have the most clients funded by DHB?",
-    "How many clients have a fall risk but no completed manual handling plan?",
-    "What are the most in-demand services?",
-    "Show the count of clients per primary condition.",
+    "Which care coordinators have the highest active client caseload?",
+    # Intake & funnel
+    "What is the referral-to-service-start conversion rate by funder?",
     "What is the average number of days from referral to service start by region?",
+    # Risk, safety & compliance
+    "Which home-safety hazards are most often rated high risk?",
+    "How many plans have a fall risk flag but an incomplete manual handling plan?",
+    # Clinical & dependency
+    "Which activities-of-daily-living tasks most often require full dependency support?",
+    "What are the most common primary conditions among clients?",
 ]
 
 DESCRIPTION = (
     "Service Plan Document Intelligence — natural-language Q&A over Home Based "
-    "Support Services (HBSS) care plans.\n\n"
-    "Gold dimensional model:\n"
-    "- dim_client: one row per client (NHI) with demographics, region, conditions.\n"
-    "- dim_care_coordinator: coordinator workload and capacity.\n"
-    "- fact_service_plan: one row per plan (funder, hours, dates, risk plans).\n"
-    "- fact_service_demand_by_region: service demand by type/region/funder/month.\n"
-    "- fact_risk_profile: risk flags per client with vulnerability + region.\n"
-    "- agg_intake_funnel: monthly referrals vs starts, time-to-start, hours.\n\n"
-    "Facts join to dim_client on nhi_number and to dim_care_coordinator on "
-    "care_coordinator. All data is synthetic."
+    "Support Services (HBSS) care plans. De-identified star schema (clients keyed by "
+    "pseudonymous client_key; no names/NHI/DOB — use age_band).\n\n"
+    "Dimensions: dim_client (age_band, gender, ethnicity, region, vulnerability_tier, "
+    "interrai_score), dim_care_coordinator (workload), dim_region, dim_funder, dim_date.\n"
+    "Central fact: fact_service_plan — one row per plan (plan_key), with weekly_care_hours, "
+    "package_of_care_hours, interrai_score, days_referral_to_start, manual_handling/"
+    "pressure_area completion flags, and referral/service/review dates.\n"
+    "Bridge-facts (one row per plan and item): fact_plan_condition, fact_plan_risk_flag, "
+    "fact_home_safety_hazard (is_present, risk_rating H/M/L), fact_support_task "
+    "(support_type, dependency_level, is_dependent), fact_care_domain, fact_plan_service, "
+    "fact_plan_equipment, fact_provider_linkage.\n"
+    "Metric views (governed KPIs, query with MEASURE()): metric_capacity, "
+    "metric_intake_funnel, metric_home_safety, metric_risk_flags, metric_dependency, "
+    "metric_clinical.\n\n"
+    "Join keys: facts join on client_key -> dim_client, coordinator_key -> "
+    "dim_care_coordinator, and any date column -> dim_date.date_key. Every fact also "
+    "carries region, funder, referral_month and vulnerability_tier for direct slicing. "
+    "All data is synthetic."
 )
 
 # Genie serialized-space payload (schema version 2).
