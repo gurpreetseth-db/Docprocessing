@@ -34,6 +34,10 @@ DATABRICKS_WAREHOUSE_ID = os.environ.get("DATABRICKS_WAREHOUSE_ID", "")
 GENIE_SPACE_NAME = os.environ.get("GENIE_SPACE_NAME", "Doc Processing Helper")
 GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "")
 JOB_ID = os.environ.get("JOB_ID", "")
+# Pipeline id (resolved at deploy via ${resources.pipelines.*.id}). The app
+# triggers processing through the JOB (which runs the pipeline task), so this is
+# used for status/lineage display rather than for triggering.
+PIPELINE_ID = os.environ.get("PIPELINE_ID", "")
 
 CATALOG = os.environ.get("CATALOG", "DocProcessing")
 BRONZE_SCHEMA = os.environ.get("BRONZE_SCHEMA", "DocProcess_Bronze")

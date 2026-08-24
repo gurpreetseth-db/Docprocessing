@@ -7,7 +7,16 @@
 # so there are NO hardcoded ids in the app source:
 #   * catalog / schema names + Genie AGENT NAME -> config.env with ${var.*}
 #   * SQL warehouse id  -> injected from the `app-warehouse` resource (valueFrom)
-#   * job id            -> injected from the `app-job` resource (valueFrom)
+#   * job id            -> resolved at DEPLOY time via ${resources.jobs.*.id}
+#   * pipeline id       -> resolved at DEPLOY time via ${resources.pipelines.*.id}
+#
+# NOTE on JOB_ID / PIPELINE_ID: these are injected as plain `value:` fields using
+# bundle interpolation, so `databricks bundle deploy` substitutes the *concrete*
+# ids (Terraform creates the job/pipeline first, then the app that references them).
+# This is deterministic — unlike `valueFrom`, which only bakes the id into the
+# container when the app is (re)deployed/started, so a stale/stopped app can read
+# it as blank. We STILL declare the `app-job` resource below so the app's service
+# principal is granted CAN_MANAGE_RUN and is actually authorized to trigger the job.
 #
 # The app resolves the Genie space BY NAME (GENIE_SPACE_NAME) at runtime, so no
 # Genie space-id is ever wired.
@@ -34,9 +43,14 @@ resources:
         env:
           - name: DATABRICKS_APP_PORT
             value: "8050"
-          # Injected from the app resources above (ids resolved at deploy):
+          # Job + pipeline ids resolved deterministically at bundle deploy time.
+          # (JOB_ID lets the app trigger runs; the app-job resource above grants
+          #  the CAN_MANAGE_RUN permission that authorizes run_now.)
           - name: JOB_ID
-            value_from: "app-job"
+            value: ${resources.jobs.doc_processing_job.id}
+          - name: PIPELINE_ID
+            value: ${resources.pipelines.doc_processing_pipeline.id}
+          # SQL warehouse id is a stable, known id -> injected from the resource.
           - name: DATABRICKS_WAREHOUSE_ID
             value_from: "app-warehouse"
           # Catalog / schema names + Genie agent name (from config.yml):
