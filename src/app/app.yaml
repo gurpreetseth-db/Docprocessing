@@ -1,14 +1,22 @@
 # =============================================================================
-# App runtime manifest (minimal on purpose).
+# App runtime manifest — AUTHORITATIVE for command + env.
 # =============================================================================
-# The command is defined here; all environment variables and resource wiring are
-# supplied by the bundle app resource (resources/app.yml -> config.env), which is
-# the single source of truth and substitutes values from config.yml. This keeps
-# catalog/schema names, the Genie agent name, the warehouse id and job id out of
-# source control drift.
+# IMPORTANT: For Databricks Apps, THIS file's `env:` block is what the running
+# container reads. A bundle `config.env` in resources/app.yml is NOT merged into
+# the runtime when a source app.yaml defines env — so all runtime env vars must
+# live here.
 #
-# The app reads these env vars (set by the bundle): JOB_ID, DATABRICKS_WAREHOUSE_ID,
-# CATALOG, BRONZE_SCHEMA, SILVER_SCHEMA, GOLD_SCHEMA, VOLUME_NAME, GENIE_SPACE_NAME.
+# Resource-backed ids (JOB_ID, DATABRICKS_WAREHOUSE_ID) are injected by the
+# platform via `valueFrom: "<resource-name>"`, referencing the app resources
+# declared in resources/app.yml (app-job, app-warehouse). The platform resolves
+# a job resource to its job id and a sql_warehouse resource to its warehouse id.
+#
+# PIPELINE_ID is set as a literal because "pipeline" is not a valid app-resource
+# type and app.yaml cannot use ${resources.*} bundle interpolation. Triggering
+# still goes through the JOB (which runs the pipeline task); PIPELINE_ID is for
+# status/lineage display only.
+#
+# Catalog/schema/volume/Genie names mirror the config.yml defaults.
 # =============================================================================
 command:
   - "python"
@@ -17,4 +25,27 @@ command:
 env:
   - name: DATABRICKS_APP_PORT
     value: "8050"
-    description: "Port for the Dash app (default 8050)"
+
+  # --- Resource-backed ids (resolved by the platform at runtime) --------------
+  - name: JOB_ID
+    valueFrom: "app-job"
+  - name: DATABRICKS_WAREHOUSE_ID
+    valueFrom: "app-warehouse"
+
+  # --- Pipeline id (literal; pipeline is not an app-resource type) ------------
+  - name: PIPELINE_ID
+    value: "6db308a2-c508-4239-a8d6-2d70b509d1f7"
+
+  # --- Catalog / schema / volume / Genie names (mirror config.yml) ------------
+  - name: CATALOG
+    value: "DocProcessing"
+  - name: BRONZE_SCHEMA
+    value: "DocProcess_Bronze"
+  - name: SILVER_SCHEMA
+    value: "DocProcess_Silver"
+  - name: GOLD_SCHEMA
+    value: "DocProcess_Gold"
+  - name: VOLUME_NAME
+    value: "InputPDFs"
+  - name: GENIE_SPACE_NAME
+    value: "Doc Processing Helper"
