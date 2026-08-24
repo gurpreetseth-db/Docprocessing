@@ -3,13 +3,21 @@
 # =============================================================================
 # App source lives in ../src/app (app.py + app.yaml + requirements.txt).
 #
-# Everything the app needs is driven from config.yml here (single source of truth),
-# so there are NO hardcoded ids in the app source:
-#   * catalog / schema names + Genie AGENT NAME -> config.env with ${var.*}
-#   * SQL warehouse id  -> injected from the `app-warehouse` resource (valueFrom)
-#   * job id            -> injected from the `app-job` resource (valueFrom)
+# RUNTIME env + command live in ../src/app/app.yaml (that file is authoritative
+# for a Databricks App — a bundle `config.env` here is NOT merged into the
+# running container when the source app.yaml defines env). So this file only:
+#   * names the app + points at the source, and
+#   * declares the APP RESOURCES the app needs.
 #
-# The app resolves the Genie space BY NAME (GENIE_SPACE_NAME) at runtime, so no
+# The resources below do two things:
+#   1. Grant the app's service principal permission on each resource
+#      (CAN_MANAGE_RUN on the job so it can trigger runs; CAN_USE on the SQL
+#       warehouse for queries / job-run listing).
+#   2. Back the `valueFrom: "<name>"` lookups in app.yaml — the platform
+#      resolves `app-job` -> the job id (JOB_ID) and `app-warehouse` -> the
+#      warehouse id (DATABRICKS_WAREHOUSE_ID) at runtime.
+#
+# The Genie space is resolved BY NAME (GENIE_SPACE_NAME) at runtime, so no
 # Genie space-id is ever wired.
 # =============================================================================
 resources:
@@ -27,28 +35,3 @@ resources:
           sql_warehouse:
             id: ${var.warehouse_id}
             permission: CAN_USE
-      config:
-        command:
-          - "python"
-          - "app.py"
-        env:
-          - name: DATABRICKS_APP_PORT
-            value: "8050"
-          # Injected from the app resources above (ids resolved at deploy):
-          - name: JOB_ID
-            value_from: "app-job"
-          - name: DATABRICKS_WAREHOUSE_ID
-            value_from: "app-warehouse"
-          # Catalog / schema names + Genie agent name (from config.yml):
-          - name: CATALOG
-            value: ${var.catalog}
-          - name: BRONZE_SCHEMA
-            value: ${var.bronze_schema}
-          - name: SILVER_SCHEMA
-            value: ${var.silver_schema}
-          - name: GOLD_SCHEMA
-            value: ${var.gold_schema}
-          - name: VOLUME_NAME
-            value: ${var.volume_name}
-          - name: GENIE_SPACE_NAME
-            value: ${var.genie_space_name}
