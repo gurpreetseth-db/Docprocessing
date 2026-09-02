@@ -65,6 +65,11 @@ except:
     volume_name = "InputPDFs"
 
 try:
+    failed_volume_name = dbutils.widgets.get("failed_volume_name")
+except:
+    failed_volume_name = "FailedFiles"
+
+try:
     num_users = int(dbutils.widgets.get("num_users"))
 except:
     num_users = 10
@@ -73,6 +78,20 @@ try:
     num_documents = int(dbutils.widgets.get("num_documents"))
 except:
     num_documents = 20
+
+# --- Data-quality anomaly injection -----------------------------------------
+# When enabled, a subset of the generated PDFs are deliberately produced with a
+# MISSING mandatory field so the Silver pipeline's validation can reject them and
+# the app's "Data Quality" tab has something to show. See Step 4.
+try:
+    generate_anomalies = str(dbutils.widgets.get("generate_anomalies")).strip().lower() in ("true", "1", "yes")
+except:
+    generate_anomalies = True
+
+try:
+    anomaly_document_count = int(dbutils.widgets.get("anomaly_document_count"))
+except:
+    anomaly_document_count = 5
 
 # The Databricks App runs as its own service principal (NOT the deploying user), so it
 # needs read access on the catalog for its queries (My Submissions, Pipeline Ops) to
@@ -114,6 +133,8 @@ print(f"  Gold Schema: {gold_schema}")
 print(f"  Volume Name: {volume_name}")
 print(f"  Num Users: {num_users}")
 print(f"  Num Documents: {num_documents}")
+print(f"  Generate Anomalies: {generate_anomalies}")
+print(f"  Anomaly Document Count: {anomaly_document_count}")
 
 # COMMAND ----------
 
@@ -127,8 +148,10 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{bronze_schema}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{silver_schema}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{gold_schema}")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{volume_name}")
+# Separate volume that rejected PDFs are moved into (outside the Auto Loader scan path).
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{failed_volume_name}")
 
-print("Catalog, schemas, and volume created successfully!")
+print("Catalog, schemas, and volumes created successfully!")
 
 # Enable Predictive Optimization so Databricks automatically runs OPTIMIZE / VACUUM and
 # liquid-clustering maintenance on every table in this catalog — no manual upkeep jobs.
@@ -241,6 +264,21 @@ NZ_STREETS = ["Ponsonby Road", "Queen Street", "Mountain Road", "The Strand", "L
               "Riccarton Road", "Main Street", "State Highway 1", "Mill Street"]
 NZ_SUBURBS = ["Auckland", "Ponsonby", "Grey Lynn", "Wellington", "Newtown", "Te Aro",
               "Christchurch", "Riccarton", "Harewood", "Dunedin", "Mosgiel", "Hamilton", "Te Awamutu"]
+
+
+# ── Data-quality anomaly definitions ─────────────────────────────────────────
+# Each mandatory field the Silver pipeline validates. When anomalies are enabled we
+# blank ONE of these per selected document; the missing field rotates across this list
+# so a count >= 5 guarantees each rejection reason appears at least once. These keys map
+# 1:1 to the CASE checks in src/pipeline/02_silver_processing.sql.
+ANOMALY_FIELDS = ["client_first_name", "gender", "date_of_birth", "address", "gp_name"]
+ANOMALY_LABELS = {
+    "client_first_name": "Missing client first name",
+    "gender": "Missing gender",
+    "date_of_birth": "Missing date of birth",
+    "address": "Missing address",
+    "gp_name": "Missing GP name",
+}
 
 
 def generate_nhi():
@@ -467,8 +505,9 @@ def create_service_plan_pdf(d):
     story.append(vt)
     story.append(Spacer(1, 4))
 
-    # Client / contacts grid
-    addr = f"{random.randint(1, 999)} {random.choice(NZ_STREETS)}, {random.choice(NZ_SUBURBS)}, New Zealand"
+    # Client / contacts grid. Address comes from the record so the anomaly injector can
+    # blank it (an empty cell parses to a null address, which Silver validation rejects).
+    addr = d.get("address", "")
     client = [
         [P("Client Last Name:", BOLD), P(d["client_last_name"]),
          P("First Name:", BOLD), P(d["client_first_name"]),
@@ -830,6 +869,7 @@ def build_plan_record(client_first_name, client_last_name, care_coordinator, reg
         "nhi_number": generate_nhi(),
         "gender": random.choice(["Male", "Female", "Other"]),
         "date_of_birth": dob.strftime("%d/%m/%Y"),
+        "address": f"{random.randint(1, 999)} {random.choice(NZ_STREETS)}, {random.choice(NZ_SUBURBS)}, New Zealand",
         "epoa_status": random.choice(["Y", "N"]),
         "interrai_score": random.randint(10, 28),
         "phone": generate_phone(),
@@ -910,6 +950,21 @@ os.makedirs(base_path, exist_ok=True)
 pdf_count = 0
 generated_files = []
 
+# ── Decide which documents get a deliberate missing-field anomaly ────────────
+# We pick `anomaly_document_count` random document indices and assign each a single
+# missing field, ROTATING through ANOMALY_FIELDS so every rejection reason is covered
+# once the count reaches 5. anomaly_map maps a doc index -> the field key to blank.
+anomaly_map = {}
+if generate_anomalies and anomaly_document_count > 0 and num_documents > 0:
+    n_bad = min(anomaly_document_count, num_documents)
+    bad_indices = sorted(random.sample(range(num_documents), n_bad))
+    for j, idx in enumerate(bad_indices):
+        anomaly_map[idx] = ANOMALY_FIELDS[j % len(ANOMALY_FIELDS)]
+    print(f"Injecting {len(anomaly_map)} anomalous document(s): "
+          f"{ {i: ANOMALY_LABELS[f] for i, f in anomaly_map.items()} }")
+else:
+    print("Anomaly injection disabled — all documents will be clean.")
+
 # Generate base timestamp once for batch, then add offsets to prevent collisions
 base_timestamp = datetime.now()
 
@@ -939,6 +994,16 @@ for doc_idx in range(num_documents):
         care_coordinator=user_name,
         region=region,
     )
+    # Inject a deliberate anomaly (blank one mandatory field) for selected documents.
+    # An empty field on the form parses to a null value, which the Silver pipeline's
+    # validation rejects into the service_plan_quarantine table.
+    anomaly_field = anomaly_map.get(doc_idx)
+    if anomaly_field:
+        record[anomaly_field] = ""
+        # First name also drives "prefers to be called"; blank both so the name doesn't leak.
+        if anomaly_field == "client_first_name":
+            record["prefers_to_be_called"] = ""
+
     pdf_bytes = create_service_plan_pdf(record)
 
     # Write to volume under the {email_slug}/{submission_id}/ folder so the original
@@ -954,12 +1019,19 @@ for doc_idx in range(num_documents):
         'user': user_name,
         'email': user_email,
         'path': file_path,
-        'size_kb': len(pdf_bytes) / 1024
+        'size_kb': len(pdf_bytes) / 1024,
+        'anomaly': ANOMALY_LABELS[anomaly_field] if anomaly_field else None,
     })
 
     pdf_count += 1
 
-print(f"Successfully generated {pdf_count} extensive Service Plan PDFs!")
+anomaly_files = [f for f in generated_files if f['anomaly']]
+print(f"Successfully generated {pdf_count} extensive Service Plan PDFs "
+      f"({len(anomaly_files)} with a deliberate missing-field anomaly)!")
+if anomaly_files:
+    print("\nANOMALOUS DOCUMENTS (expected to be quarantined by the pipeline):")
+    for f in anomaly_files:
+        print(f"  - {f['filename']:<55} → {f['anomaly']}")
 
 # COMMAND ----------
 
