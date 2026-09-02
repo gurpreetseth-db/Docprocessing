@@ -60,11 +60,11 @@ sample data, pipeline, app, and the Genie Agent — no manual id wiring.
 |-----------|-------------|
 | **Bronze** | Auto Loader ingests PDFs as binary; `document_submissions` parses the folder path into submitter email + submission id |
 | **Silver** | `ai_parse_document()` extracts text; a single `ai_query()` (Claude) structures it into typed fields in `service_plan_candidates`; dates normalized to real `DATE`. Each document is **validated for mandatory fields** and fanned out: valid → `service_plan_extracted`, invalid → `service_plan_quarantine` |
-| **Validation & Quarantine** | Documents missing **client first name, gender, date of birth, address, GP name, or NHI** (or that error during extraction) are withheld from Gold and written to `service_plan_quarantine` with a human-readable `rejection_reason`. Warn-only DLT expectations also publish per-field violation rates to the pipeline's Data Quality view |
+| **Validation & Quarantine** | Documents missing **client first name, gender, date of birth, address, GP name, or NHI** (or that error during extraction) are withheld from Gold and written to `service_plan_quarantine` with a human-readable `rejection_reason`. Warn-only DLT expectations also publish per-field violation rates to the pipeline's Data Quality view. A follow-on job task then **physically moves each rejected PDF** into the `FailedFiles` volume |
 | **Gold** | Dimensional model (`dim_*` / `fact_*` / `agg_*`) built only from **valid** plans, powering analytics and Genie |
 | **Databricks App** | 4-tab Dash portal: Submit & Track, Pipeline Ops, **Data Quality**, Genie Assistant |
 | **Genie Agent** | Genie space auto-created after the pipeline; the app resolves it **by name** |
-| **Scheduled Job** | Runs the pipeline every 4 hours, then provisions/refreshes the Genie Agent; also triggerable on-demand from the app |
+| **Scheduled Job** | Runs the pipeline every 4 hours, then (in parallel) moves rejected PDFs to `FailedFiles` and builds metric views + provisions/refreshes the Genie Agent; also triggerable on-demand from the app |
 | **Setup Job** | Creates catalog/schemas/volume/users, grants the app's service principal, and generates sample Service Plan PDFs — including deliberate **anomalous** PDFs (missing fields) when `generate_anomalies` is on |
 
 ## Project Structure
@@ -82,14 +82,18 @@ Docprocessing/
 └── src/
     ├── pipeline/
     │   ├── 01_bronze_ingestion.sql     # ${catalog}/${bronze_schema}/${volume_name}
-    │   ├── 02_silver_processing.sql    # ${...} + date normalization
-    │   └── 03_gold_aggregations.sql    # ${...} dimensional model
+    │   ├── 02_silver_processing.sql    # extract once + validate; extracted + quarantine
+    │   └── 03_gold_aggregations.sql    # ${...} dimensional model (valid plans only)
+    ├── ops/
+    │   └── move_failed_files.py        # moves rejected PDFs -> FailedFiles volume
+    ├── gold/
+    │   └── create_metric_views.py      # governed metric views on the Gold facts
     ├── app/
-    │   ├── app.py              # Dash app; resolves Genie by name
-    │   ├── app.yaml            # minimal runtime manifest (command only)
+    │   ├── app.py              # Dash app (4 tabs); resolves Genie by name
+    │   ├── app.yaml            # runtime manifest (command + env)
     │   └── requirements.txt
     ├── setup/
-    │   ├── generate_sample_data.py     # catalog/schemas/volume/users/grants + PDFs
+    │   ├── generate_sample_data.py     # catalog/schemas/volumes/users/grants + PDFs (+ anomalies)
     │   └── provision_genie.py          # idempotent Genie Agent creation
     └── service_plan_intelligence.lvdash.json
 ```
@@ -107,6 +111,7 @@ SQL, setup/genie notebooks, and the app all read from it — nothing is duplicat
 | `silver_schema` | `DocProcess_Silver` | pipeline, app |
 | `gold_schema` | `DocProcess_Gold` | pipeline, genie, app |
 | `volume_name` | `InputPDFs` | pipeline, setup, app |
+| `failed_volume_name` | `FailedFiles` | setup, move-failed task, app (PDF fallback) |
 | `genie_space_name` | `Doc Processing Helper` | genie provisioning, app (resolve-by-name) |
 | `app_name` | `doc-processing-app` | app resource, grants |
 | `warehouse_id` | `29b33b8b6a20b116` | app, genie, dashboard |
@@ -153,8 +158,8 @@ from bundle app-resources, and finds the Genie Agent by its configured name at r
 ## The App (4 tabs)
 
 1. **Submit & Track** — detects the logged-in user, lets them upload Service Plan PDFs to
-   the volume, and lists their submissions with a derived Processed/Pending status. Click a
-   row to view the PDF.
+   the volume, and lists their submissions with a derived **Processed / Rejected / Pending**
+   status. Click a row to view the PDF.
 2. **Pipeline Ops** — trigger the pipeline on demand; shows the last 5 runs with status,
    failure reason, and the count + names of files processed per run.
 3. **Data Quality** — every PDF the pipeline **rejected**, with the reason(s) it failed
@@ -171,6 +176,16 @@ one whose AI extraction errors — is **withheld from Gold** and written to
 `${silver_schema}.service_plan_quarantine` with a semicolon-joined `rejection_reason`. Only
 valid plans reach `service_plan_extracted` and the Gold model, so analytics and Genie are
 never polluted by incomplete records.
+
+**Failed files are moved aside.** A declarative pipeline can *detect* bad documents but
+cannot move files, so a follow-on job task (`src/ops/move_failed_files.py`) runs after the
+pipeline and relocates every quarantined PDF from the landing volume (`InputPDFs`) into a
+separate **`FailedFiles`** volume, preserving the `{email_slug}/{submission_id}/{name}`
+sub-path. `FailedFiles` is a **separate volume, not a subfolder of `InputPDFs`**, on
+purpose: Auto Loader scans the landing volume recursively and checkpoints by file path, so
+a file moved *within* it would be re-ingested endlessly. The move is idempotent (an
+already-moved file is skipped), and the app's PDF viewer falls back to the `FailedFiles`
+location so rejected documents stay viewable in the Data Quality tab.
 
 To demo this end-to-end, the setup job can inject deliberately anomalous PDFs
 (`generate_anomalies: true`, `anomaly_document_count: 5`). Each bad PDF blanks one mandatory

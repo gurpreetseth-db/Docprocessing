@@ -47,5 +47,7 @@ env:
     value: "DocProcess_Gold"
   - name: VOLUME_NAME
     value: "InputPDFs"
+  - name: FAILED_VOLUME_NAME
+    value: "FailedFiles"
   - name: GENIE_SPACE_NAME
     value: "Doc Processing Helper"

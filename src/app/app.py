@@ -45,6 +45,9 @@ SILVER_SCHEMA = os.environ.get("SILVER_SCHEMA", "DocProcess_Silver")
 GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "DocProcess_Gold")
 VOLUME_NAME = os.environ.get("VOLUME_NAME", "InputPDFs")
 VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}"
+# Volume that rejected PDFs are moved into by the pipeline's move_failed_files task.
+# The PDF viewer falls back to this location when a file is no longer in VOLUME_NAME.
+FAILED_VOLUME_NAME = os.environ.get("FAILED_VOLUME_NAME", "FailedFiles")
 
 # Silver quarantine table: one row per PDF the pipeline REJECTED (missing mandatory
 # field or AI extraction error), populated by src/pipeline/02_silver_processing.sql.
@@ -456,11 +459,33 @@ def _run_submissions_query(where_clause):
     """Run the submissions query with a real, derived status.
 
     Bronze's processing_status is a constant ('INGESTED'), so it can't tell you
-    whether a document was actually processed. We derive the real status by
-    LEFT JOINing to the Silver extraction table: a file present there has been
-    fully parsed + extracted ('Processed'); otherwise it is still 'Pending'.
+    whether a document was actually processed. We derive the real status by joining
+    the Silver tables: present in service_plan_extracted -> 'Processed'; present in
+    service_plan_quarantine -> 'Rejected'; otherwise still 'Pending'.
+
+    The quarantine table may not exist until the pipeline has run once, so we fall
+    back to the extracted-only query if the three-way join errors.
     """
-    query = f"""
+    cols = ["File Name", "Submitted", "Size (bytes)", "Status", "file_path"]
+    full_query = f"""
+    SELECT
+      s.file_name,
+      s.submission_time,
+      s.file_size,
+      CASE WHEN e.file_path IS NOT NULL THEN 'Processed'
+           WHEN q.file_path IS NOT NULL THEN 'Rejected'
+           ELSE 'Pending' END AS status,
+      s.file_path
+    FROM {CATALOG}.{BRONZE_SCHEMA}.document_submissions s
+    LEFT JOIN {CATALOG}.{SILVER_SCHEMA}.service_plan_extracted e
+      ON s.file_path = e.file_path
+    LEFT JOIN (SELECT DISTINCT file_path FROM {QUARANTINE_TABLE}) q
+      ON s.file_path = q.file_path
+    {where_clause}
+    ORDER BY s.submission_time DESC
+    LIMIT 50
+    """
+    fallback_query = f"""
     SELECT
       s.file_name,
       s.submission_time,
@@ -474,15 +499,19 @@ def _run_submissions_query(where_clause):
     ORDER BY s.submission_time DESC
     LIMIT 50
     """
-    results = run_sql(query)
+    # run_sql returns a FAILED response (it does not raise), so branch on the state:
+    # if the three-way join failed (e.g. quarantine table not created yet), retry the
+    # extracted-only query.
+    results = run_sql(full_query)
+    state = getattr(getattr(results, "status", None), "state", None)
+    state_str = getattr(state, "value", str(state)) if state is not None else ""
+    if state_str != "SUCCEEDED":
+        results = run_sql(fallback_query)
     if results.result and results.result.data_array:
-        df = pd.DataFrame(
-            results.result.data_array,
-            columns=["File Name", "Submitted", "Size (bytes)", "Status", "file_path"]
-        )
+        df = pd.DataFrame(results.result.data_array, columns=cols)
         df["Submitted"] = pd.to_datetime(df["Submitted"]).dt.strftime("%Y-%m-%d %H:%M:%S")
         return df
-    return pd.DataFrame(columns=["File Name", "Submitted", "Size (bytes)", "Status", "file_path"])
+    return pd.DataFrame(columns=cols)
 
 
 def get_submitted_documents(user_email):
@@ -1132,7 +1161,11 @@ def refresh_submissions(n, user_data):
     rows = []
     for _, r in df.iterrows():
         status = r["Status"]
-        pill_class = "status-badge-success" if status == "Processed" else "status-badge-running"
+        pill_class = {
+            "Processed": "status-badge-success",
+            "Rejected": "status-badge-failed",
+            "Pending": "status-badge-running",
+        }.get(status, "status-badge-running")
         rows.append(
             html.Button(
                 [
@@ -1169,27 +1202,43 @@ def refresh_submissions(n, user_data):
 
 
 def _load_pdf_iframe(file_path):
-    """Download a PDF from the UC volume and return an <iframe> data-URI viewer."""
-    try:
-        # Stored paths look like 'dbfs:/Volumes/...'; the Files API wants '/Volumes/...'.
-        vol_path = file_path
-        if vol_path.startswith("dbfs:"):
-            vol_path = vol_path[len("dbfs:"):]
-        resp = w.files.download(vol_path)
-        # DownloadResponse.contents is a streaming file-like object
-        raw = resp.contents.read() if hasattr(resp, "contents") else resp.read()
-        b64 = base64.b64encode(raw).decode("utf-8")
-        src = f"data:application/pdf;base64,{b64}"
-        return html.Iframe(
-            src=src,
-            style={"width": "100%", "height": "75vh", "border": "none", "borderRadius": "8px"},
-        )
-    except Exception as e:
-        return html.Div(
-            [html.I(className="bi bi-exclamation-triangle me-2"),
-             f"Could not load PDF: {str(e)}"],
-            style={"color": "#ff5252", "padding": "20px"},
-        )
+    """Download a PDF from the UC volume and return an <iframe> data-URI viewer.
+
+    A rejected file may have been MOVED by the pipeline's move_failed_files task from
+    the landing volume into FAILED_VOLUME_NAME, so the path stored in the quarantine
+    table no longer resolves. We try the stored path first, then the moved location
+    (same sub-path under the failed volume).
+    """
+    # Stored paths look like 'dbfs:/Volumes/...'; the Files API wants '/Volumes/...'.
+    vol_path = file_path
+    if vol_path.startswith("dbfs:"):
+        vol_path = vol_path[len("dbfs:"):]
+
+    candidates = [vol_path]
+    moved_path = vol_path.replace(f"/{VOLUME_NAME}/", f"/{FAILED_VOLUME_NAME}/", 1)
+    if moved_path != vol_path:
+        candidates.append(moved_path)
+
+    last_err = None
+    for path in candidates:
+        try:
+            resp = w.files.download(path)
+            # DownloadResponse.contents is a streaming file-like object
+            raw = resp.contents.read() if hasattr(resp, "contents") else resp.read()
+            b64 = base64.b64encode(raw).decode("utf-8")
+            src = f"data:application/pdf;base64,{b64}"
+            return html.Iframe(
+                src=src,
+                style={"width": "100%", "height": "75vh", "border": "none", "borderRadius": "8px"},
+            )
+        except Exception as e:
+            last_err = e
+
+    return html.Div(
+        [html.I(className="bi bi-exclamation-triangle me-2"),
+         f"Could not load PDF: {str(last_err)}"],
+        style={"color": "#ff5252", "padding": "20px"},
+    )
 
 
 @callback(

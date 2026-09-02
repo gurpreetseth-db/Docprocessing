@@ -65,6 +65,11 @@ except:
     volume_name = "InputPDFs"
 
 try:
+    failed_volume_name = dbutils.widgets.get("failed_volume_name")
+except:
+    failed_volume_name = "FailedFiles"
+
+try:
     num_users = int(dbutils.widgets.get("num_users"))
 except:
     num_users = 10
@@ -143,8 +148,10 @@ spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{bronze_schema}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{silver_schema}")
 spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{gold_schema}")
 spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{volume_name}")
+# Separate volume that rejected PDFs are moved into (outside the Auto Loader scan path).
+spark.sql(f"CREATE VOLUME IF NOT EXISTS {catalog}.{bronze_schema}.{failed_volume_name}")
 
-print("Catalog, schemas, and volume created successfully!")
+print("Catalog, schemas, and volumes created successfully!")
 
 # Enable Predictive Optimization so Databricks automatically runs OPTIMIZE / VACUUM and
 # liquid-clustering maintenance on every table in this catalog — no manual upkeep jobs.

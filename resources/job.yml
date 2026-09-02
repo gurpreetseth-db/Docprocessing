@@ -26,6 +26,20 @@ resources:
         - task_key: run_document_pipeline
           pipeline_task:
             pipeline_id: ${resources.pipelines.doc_processing_pipeline.id}
+        # Physically move rejected PDFs out of the landing volume into the FailedFiles
+        # volume (the pipeline can only detect + quarantine; it cannot move files).
+        # Runs after the pipeline; independent of the metric-views / Genie branch.
+        - task_key: move_failed_files
+          depends_on:
+            - task_key: run_document_pipeline
+          notebook_task:
+            notebook_path: ../src/ops/move_failed_files.py
+            base_parameters:
+              catalog: ${var.catalog}
+              bronze_schema: ${var.bronze_schema}
+              silver_schema: ${var.silver_schema}
+              volume_name: ${var.volume_name}
+              failed_volume_name: ${var.failed_volume_name}
         # Governed metric views sit on top of the Gold facts, so they run after the
         # pipeline has materialized them.
         - task_key: create_metric_views
@@ -65,6 +79,7 @@ resources:
               silver_schema: ${var.silver_schema}
               gold_schema: ${var.gold_schema}
               volume_name: ${var.volume_name}
+              failed_volume_name: ${var.failed_volume_name}
               num_users: ${var.num_users}
               num_documents: ${var.num_documents}
               generate_anomalies: ${var.generate_anomalies}
