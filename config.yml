@@ -62,6 +62,22 @@ variables:
     description: "Number of synthetic Service Plan PDFs the setup job generates."
     default: "20"
 
+  # --- Data-quality anomaly injection ----------------------------------------
+  generate_anomalies:
+    description: >-
+      When "true", the setup job deliberately produces some Service Plan PDFs with a
+      MISSING mandatory field (client first name, gender, date of birth, address, or GP
+      name). The Silver pipeline validates every document and routes these to a
+      `service_plan_quarantine` table, which the app surfaces in its "Data Quality" tab.
+      Set to "false" to generate only clean documents.
+    default: "true"
+  anomaly_document_count:
+    description: >-
+      How many of the generated PDFs get a deliberate missing-field anomaly (only used
+      when generate_anomalies is true). The missing field rotates across the five
+      mandatory fields, so a count >= 5 guarantees every rejection reason appears.
+    default: "5"
+
   # --- Pipeline schedule ------------------------------------------------------
   processing_cron:
     description: "Quartz cron for the scheduled processing job (UTC)."

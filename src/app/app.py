@@ -46,6 +46,22 @@ GOLD_SCHEMA = os.environ.get("GOLD_SCHEMA", "DocProcess_Gold")
 VOLUME_NAME = os.environ.get("VOLUME_NAME", "InputPDFs")
 VOLUME_PATH = f"/Volumes/{CATALOG}/{BRONZE_SCHEMA}/{VOLUME_NAME}"
 
+# Silver quarantine table: one row per PDF the pipeline REJECTED (missing mandatory
+# field or AI extraction error), populated by src/pipeline/02_silver_processing.sql.
+# The "Data Quality" tab reads this.
+QUARANTINE_TABLE = f"{CATALOG}.{SILVER_SCHEMA}.service_plan_quarantine"
+
+# The mandatory fields the Silver pipeline validates (drives the reason filter dropdown).
+REJECTION_REASONS = [
+    "Missing client first name",
+    "Missing gender",
+    "Missing date of birth",
+    "Missing address",
+    "Missing GP name",
+    "Missing NHI number",
+    "AI extraction failed",
+]
+
 w = WorkspaceClient()
 
 # Cache the resolved Genie space id so we only hit the list API once per process.
@@ -699,6 +715,52 @@ def get_submission_stats():
     return stats
 
 
+def get_rejected_count():
+    """Count of distinct PDFs the pipeline rejected into the quarantine table.
+
+    Queried separately from get_submission_stats() so that if the quarantine table
+    does not exist yet (pipeline never run), it degrades to 0 on its own without
+    zeroing the other KPIs.
+    """
+    try:
+        if not DATABRICKS_WAREHOUSE_ID:
+            return 0
+        res = run_sql(f"SELECT COUNT(DISTINCT file_path) FROM {QUARANTINE_TABLE}")
+        if res.result and res.result.data_array:
+            return int(res.result.data_array[0][0] or 0)
+    except Exception as e:
+        print(f"Error fetching rejected count: {e}")
+    return 0
+
+
+def get_rejected_documents():
+    """Return rejected documents (from the quarantine table) with their reasons.
+
+    Columns: File Name, Submitter, Detected, Reason, file_path. De-duplicated on
+    file_path (a full-refresh could append a file more than once) so downstream
+    pattern-matched component ids stay unique.
+    """
+    cols = ["File Name", "Submitter", "Detected", "Reason", "file_path"]
+    empty = pd.DataFrame(columns=cols)
+    try:
+        if not DATABRICKS_WAREHOUSE_ID:
+            return empty
+        q = f"""
+        SELECT file_name, submitter_email, ingestion_timestamp, rejection_reason, file_path
+        FROM {QUARANTINE_TABLE}
+        ORDER BY ingestion_timestamp DESC
+        LIMIT 200
+        """
+        res = run_sql(q)
+        if res.result and res.result.data_array:
+            df = pd.DataFrame(res.result.data_array, columns=cols)
+            df["Detected"] = pd.to_datetime(df["Detected"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+            return df.drop_duplicates(subset=["file_path"]).reset_index(drop=True)
+    except Exception as e:
+        print(f"Error fetching rejected documents: {e}")
+    return empty
+
+
 def _kpi_card(icon, value, label, tone):
     return html.Div([
         html.Div(html.I(className=f"bi {icon}"), className="kpi-icon"),
@@ -708,13 +770,19 @@ def _kpi_card(icon, value, label, tone):
 
 
 def build_kpi_cards():
-    """The KPI ribbon cards (returned as a list so the refresh callback can swap them)."""
+    """The KPI ribbon cards (returned as a list so the refresh callback can swap them).
+
+    'Awaiting Processing' now excludes rejected files (rejected = ingested but withheld
+    from Gold), so total = processed + pending + rejected.
+    """
     s = get_submission_stats()
+    rejected = get_rejected_count()
+    pending = max(s["total"] - s["processed"] - rejected, 0)
     return [
         _kpi_card("bi-files", s["total"], "Documents Submitted", "k-blue"),
         _kpi_card("bi-check2-circle", s["processed"], "Processed", "k-teal"),
-        _kpi_card("bi-hourglass-split", s["pending"], "Awaiting Processing", "k-amber"),
-        _kpi_card("bi-graph-up-arrow", f"{s['rate']}%", "Processing Rate", "k-heart"),
+        _kpi_card("bi-hourglass-split", pending, "Awaiting Processing", "k-amber"),
+        _kpi_card("bi-exclamation-octagon", rejected, "Rejected (Data Quality)", "k-heart"),
     ]
 
 
@@ -828,6 +896,71 @@ def build_tab2():
     ], style={"padding": "0 20px"})
 
 
+def build_tab_dq():
+    """Data Quality tab — PDFs the pipeline rejected, with reasons.
+
+    Interactive: a live reason-breakdown chart, a free-text search, a reason filter
+    dropdown, and clickable rows that open the same PDF viewer modal as Submit & Track.
+    """
+    dark_input = {
+        "background": "rgba(255,255,255,0.05)",
+        "border": "1px solid rgba(255,255,255,0.1)",
+        "color": "white",
+        "borderRadius": "12px",
+    }
+    return html.Div([
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5(
+                            [html.I(className="bi bi-shield-exclamation me-2"),
+                             "Data Quality — Rejected Documents"],
+                            className="mb-1", style={"fontWeight": "600"}
+                        ),
+                        html.P(
+                            "Documents that failed validation in the pipeline are withheld from "
+                            "the Gold model and listed here with the reason. Click any file to view the PDF.",
+                            style={"color": "rgba(255,255,255,0.5)", "fontSize": "0.85rem", "marginBottom": "0"}
+                        ),
+                        # Live count + per-reason breakdown chart (filled by callback).
+                        dcc.Loading(html.Div(id="dq-summary", className="mt-3"),
+                                    type="dot", color="#3FB6A8", delay_show=350),
+                    ])
+                ], className="glass-card mb-4")
+            ])
+        ]),
+        dbc.Row([
+            dbc.Col([
+                dbc.Input(
+                    id="dq-search", type="text", debounce=True,
+                    placeholder="Search by file name or submitter…", style=dark_input,
+                )
+            ], md=7),
+            dbc.Col([
+                dcc.Dropdown(
+                    id="dq-reason-filter",
+                    options=[{"label": "All reasons", "value": "All"}]
+                            + [{"label": r, "value": r} for r in REJECTION_REASONS],
+                    value="All", clearable=False,
+                    style={"borderRadius": "12px", "color": "#111"},
+                )
+            ], md=5),
+        ], className="mb-3"),
+        dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H5("Flagged Files", className="mb-3", style={"fontWeight": "600"}),
+                        dcc.Loading(html.Div(id="rejected-list"),
+                                    type="dot", color="#3FB6A8", delay_show=350),
+                    ])
+                ], className="glass-card")
+            ])
+        ]),
+    ], style={"padding": "0 20px"})
+
+
 def build_tab3():
     """Genie Assistant tab."""
     return html.Div([
@@ -910,6 +1043,7 @@ def serve_layout():
         dbc.Tabs([
             dbc.Tab(build_tab1(), label="Submit & Track", tab_id="tab-1", label_style={"fontSize": "0.9rem"}),
             dbc.Tab(build_tab2(), label="Pipeline Ops", tab_id="tab-2", label_style={"fontSize": "0.9rem"}),
+            dbc.Tab(build_tab_dq(), label="Data Quality", tab_id="tab-dq", label_style={"fontSize": "0.9rem"}),
             dbc.Tab(build_tab3(), label="Genie Assistant", tab_id="tab-3", label_style={"fontSize": "0.9rem"})
         ], id="main-tabs", active_tab="tab-1", style={"padding": "0 20px"}),
         dcc.Interval(id="refresh-interval", interval=30000, n_intervals=0)
@@ -1063,20 +1197,22 @@ def _load_pdf_iframe(file_path):
     Output("pdf-modal-title", "children"),
     Output("pdf-modal-body", "children"),
     Input({"type": "submission-row", "path": ALL}, "n_clicks"),
+    Input({"type": "rejected-row", "path": ALL}, "n_clicks"),
     Input("pdf-modal-close", "n_clicks"),
     State("pdf-modal", "is_open"),
     prevent_initial_call=True,
 )
-def toggle_pdf_modal(row_clicks, close_click, is_open):
-    """Open the PDF viewer when a submission row is clicked; close on Close button."""
+def toggle_pdf_modal(submission_clicks, rejected_clicks, close_click, is_open):
+    """Open the PDF viewer when a submission OR rejected-document row is clicked."""
     trigger = ctx.triggered_id
     if trigger == "pdf-modal-close":
         return False, no_update, no_update
 
-    # A row was clicked. ctx.triggered_id is the dict id with the file_path.
-    if isinstance(trigger, dict) and trigger.get("type") == "submission-row":
+    # A row was clicked. ctx.triggered_id is the dict id carrying the file_path.
+    if isinstance(trigger, dict) and trigger.get("type") in ("submission-row", "rejected-row"):
         # Ignore phantom fires where no click actually happened (all n_clicks 0/None).
-        if not any(row_clicks or []):
+        relevant = submission_clicks if trigger["type"] == "submission-row" else rejected_clicks
+        if not any(relevant or []):
             return no_update, no_update, no_update
         file_path = trigger.get("path")
         title = file_path.rsplit("/", 1)[-1] if file_path else "Document"
@@ -1172,6 +1308,125 @@ def refresh_runs(n, _):
         cards.append(card)
 
     return cards
+
+
+def _reason_badges(reason_str):
+    """Split a semicolon-joined rejection_reason into individual red pills."""
+    parts = [p.strip() for p in (reason_str or "").split(";") if p.strip()]
+    return [
+        html.Span(p, className="status-badge-failed",
+                  style={"marginRight": "6px", "marginBottom": "4px", "display": "inline-block"})
+        for p in parts
+    ]
+
+
+def _dq_summary(df):
+    """Header count + a horizontal bar chart of how many files hit each reason."""
+    if df.empty:
+        return html.Div()
+
+    # Count each individual reason across all rejected files.
+    counts = {}
+    for reason_str in df["Reason"]:
+        for p in (reason_str or "").split(";"):
+            p = p.strip()
+            if not p:
+                continue
+            # Collapse "AI extraction failed: <detail>" into one bucket.
+            key = "AI extraction failed" if p.startswith("AI extraction failed") else p
+            counts[key] = counts.get(key, 0) + 1
+
+    ordered = sorted(counts.items(), key=lambda kv: kv[1])
+    labels = [k for k, _ in ordered]
+    values = [v for _, v in ordered]
+
+    fig = go.Figure(go.Bar(
+        x=values, y=labels, orientation="h",
+        marker=dict(color="#ff5252"),
+        text=values, textposition="auto",
+    ))
+    fig.update_layout(
+        height=max(140, 34 * len(labels) + 60),
+        margin=dict(l=10, r=10, t=10, b=10),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="rgba(255,255,255,0.8)", size=11),
+        xaxis=dict(gridcolor="rgba(255,255,255,0.08)", zeroline=False, dtick=1),
+        yaxis=dict(automargin=True),
+        showlegend=False,
+    )
+    return html.Div([
+        html.Div([
+            html.Span(str(len(df)), style={"fontSize": "1.6rem", "fontWeight": "700", "color": "#ff5252"}),
+            html.Span(" document(s) rejected — breakdown by reason:",
+                      style={"color": "rgba(255,255,255,0.7)", "marginLeft": "8px"}),
+        ], className="mb-2"),
+        dcc.Graph(figure=fig, config={"displayModeBar": False}),
+    ])
+
+
+@callback(
+    Output("rejected-list", "children"),
+    Output("dq-summary", "children"),
+    Input("refresh-interval", "n_intervals"),
+    Input("dq-search", "value"),
+    Input("dq-reason-filter", "value"),
+)
+def update_data_quality(n, search, reason):
+    """Render the rejected-documents list (search + reason filtered) and the summary chart."""
+    df = get_rejected_documents()
+    summary = _dq_summary(df)
+
+    if df.empty:
+        empty_state = html.Div([
+            html.I(className="bi bi-patch-check", style={"fontSize": "2.5rem", "color": "rgba(63,182,168,0.5)"}),
+            html.P("No rejected documents — every processed file passed validation.",
+                   className="mt-2", style={"color": "rgba(255,255,255,0.4)"})
+        ], style={"textAlign": "center", "padding": "60px 0"})
+        return empty_state, summary
+
+    # Apply reason filter (substring so "AI extraction failed" matches the detailed message).
+    if reason and reason != "All":
+        df = df[df["Reason"].str.contains(reason, case=False, na=False)]
+
+    # Apply free-text search across file name + submitter.
+    if search and search.strip():
+        s = search.strip().lower()
+        mask = (df["File Name"].str.lower().str.contains(s, na=False)
+                | df["Submitter"].str.lower().str.contains(s, na=False))
+        df = df[mask]
+
+    if df.empty:
+        return html.Div(
+            "No rejected documents match your filters.",
+            style={"color": "rgba(255,255,255,0.4)", "padding": "30px 0", "textAlign": "center"}
+        ), summary
+
+    rows = []
+    for _, r in df.iterrows():
+        rows.append(
+            html.Button(
+                [
+                    html.Div([
+                        html.I(className="bi bi-file-earmark-pdf",
+                               style={"fontSize": "1.3rem", "color": "#ff5252", "marginRight": "12px"}),
+                        html.Div([
+                            html.Div(r["File Name"], style={
+                                "fontWeight": "600", "fontSize": "0.85rem", "wordBreak": "break-all"}),
+                            html.Small(f"{r['Submitter']} · detected {r['Detected']}",
+                                       style={"color": "rgba(255,255,255,0.5)"}),
+                            html.Div(_reason_badges(r["Reason"]), className="mt-2"),
+                        ]),
+                    ], style={"display": "flex", "alignItems": "flex-start", "flex": "1", "textAlign": "left"}),
+                    html.I(className="bi bi-eye", style={"marginLeft": "12px", "color": "rgba(255,255,255,0.6)"}),
+                ],
+                id={"type": "rejected-row", "path": r["file_path"]},
+                n_clicks=0,
+                className="submission-row-btn",
+                style={"alignItems": "flex-start"},
+            )
+        )
+
+    return html.Div(rows, style={"maxHeight": "520px", "overflowY": "auto"}), summary
 
 
 @callback(

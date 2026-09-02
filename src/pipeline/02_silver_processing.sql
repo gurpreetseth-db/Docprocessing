@@ -1,26 +1,33 @@
 -- Databricks notebook source
 -- MAGIC %md
--- MAGIC # Silver Layer - Document Parsing & Extraction
+-- MAGIC # Silver Layer - Document Parsing, Extraction & Validation
 -- MAGIC
--- MAGIC Two **streaming tables** in ${catalog}.${silver_schema} (incremental — the AI
+-- MAGIC Four **streaming tables** in ${catalog}.${silver_schema} (incremental — the AI
 -- MAGIC functions run only on newly-arrived documents, never the whole corpus):
 -- MAGIC
--- MAGIC 1. **parsed_documents** - `ai_parse_document` turns each PDF into text. With
--- MAGIC    `version 2.0` the parser emits clean **HTML tables** (`<table>…</table>`) and
--- MAGIC    renders checkboxes as `☒` (ticked) / `☐` (not ticked).
--- MAGIC 2. **service_plan_extracted** - a single `ai_query` call against a frontier model
+-- MAGIC 1. **parsed_documents** — `ai_parse_document` turns each PDF into text (HTML tables
+-- MAGIC    + `☒`/`☐` checkboxes).
+-- MAGIC 2. **service_plan_candidates** — a single `ai_query` call against a frontier model
 -- MAGIC    (`databricks-claude-sonnet-4-5`) reads that HTML and returns **every field** on
--- MAGIC    the HBSS Complex Service Plan as one structured JSON object: cover grid,
--- MAGIC    clinical background, referral goals + goal plan, other-provider linkage, home &
--- MAGIC    community, participants, all 15 care-domain goal/comment sections, emergency
--- MAGIC    management, the Household/Personal support task grids (with the ticked
--- MAGIC    dependency level per row), essential classification codes, and the full Home
--- MAGIC    Safety Risk Assessment (Yes/No + H/M/L + strategy) plus its rating legend.
+-- MAGIC    the HBSS Complex Service Plan as one structured JSON object. This table also
+-- MAGIC    computes a **`validation_errors` array** (one message per missing mandatory
+-- MAGIC    field) and an **`is_valid`** flag. The expensive LLM call happens **once, here**;
+-- MAGIC    the two tables below are cheap fan-outs of it.
+-- MAGIC 3. **service_plan_extracted** — the VALID documents (`is_valid = true`). Gold reads
+-- MAGIC    this table, so its schema is unchanged from before.
+-- MAGIC 4. **service_plan_quarantine** — the REJECTED documents (`is_valid = false`), one row
+-- MAGIC    per failed PDF with a human-readable `rejection_reason`. The app's "Data Quality"
+-- MAGIC    tab reads this table.
+-- MAGIC
+-- MAGIC **Mandatory-field validation.** A document is rejected when any of these is missing
+-- MAGIC (blank on the form → null after extraction): client first name, gender, date of
+-- MAGIC birth, address, GP name, or NHI number — or when the AI extraction call itself
+-- MAGIC errored. Data-quality **expectations** on `service_plan_candidates` also publish
+-- MAGIC per-field violation metrics to the pipeline's Data Quality view.
 -- MAGIC
 -- MAGIC Why `ai_query` and not `ai_extract`: the form is dense and conditional — the value
 -- MAGIC of a task row is *which checkbox column is ticked*, the vulnerability tier is the
--- MAGIC ticked level, etc. A frontier model interprets those `☒`/`☐` positions reliably,
--- MAGIC where flat entity extraction mis-picked (e.g. Level 1 vs Level 2).
+-- MAGIC ticked level, etc. A frontier model interprets those `☒`/`☐` positions reliably.
 -- MAGIC
 -- MAGIC Dates are returned as printed then normalized to real `DATE` here (ISO + NZ
 -- MAGIC day-first `dd/MM/yyyy` and `dd.MM.yyyy`) so Gold gets valid dates.
@@ -50,10 +57,20 @@ WHERE parsed_struct:error_status::string IS NULL;
 
 -- COMMAND ----------
 
--- DBTITLE 1,service_plan_extracted — full-document structured extraction via ai_query
-CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.service_plan_extracted
-CLUSTER BY (region, nhi_number)
-COMMENT "Every field on the HBSS Complex Service Plan, extracted from parsed HTML via ai_query (Claude); dates normalized to DATE; joined to submitter_email. STREAMING TABLE — the (expensive) ai_query LLM call runs ONLY on newly parsed documents. Clustered by region + nhi_number."
+-- DBTITLE 1,service_plan_candidates — full-document extraction (ai_query, once) + validation
+-- Data-quality expectations publish per-field violation rates to the pipeline's Data
+-- Quality view. They are WARN-ONLY (no ON VIOLATION) so every row still flows through and
+-- is routed to extracted / quarantine by the is_valid flag downstream.
+CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.service_plan_candidates (
+  CONSTRAINT has_client_first_name EXPECT (client_first_name IS NOT NULL AND trim(client_first_name) <> ''),
+  CONSTRAINT has_gender            EXPECT (gender IS NOT NULL AND trim(gender) <> ''),
+  CONSTRAINT has_date_of_birth     EXPECT (date_of_birth IS NOT NULL),
+  CONSTRAINT has_address           EXPECT (address IS NOT NULL AND trim(address) <> ''),
+  CONSTRAINT has_gp_name           EXPECT (gp_name IS NOT NULL AND trim(gp_name) <> ''),
+  CONSTRAINT has_nhi_number        EXPECT (nhi_number IS NOT NULL AND trim(nhi_number) <> '')
+)
+CLUSTER BY (file_name)
+COMMENT "Every field on the HBSS Complex Service Plan, extracted from parsed HTML via ai_query (Claude); dates normalized to DATE; joined to submitter_email; PLUS a validation_errors array + is_valid flag. STREAMING TABLE — the (expensive) ai_query LLM call runs ONLY on newly parsed documents. This is the single source that service_plan_extracted (valid) and service_plan_quarantine (rejected) fan out from."
 AS
 WITH queried AS (
   SELECT
@@ -87,6 +104,8 @@ WITH queried AS (
         'strategy text. Also capture the likelihood/consequence/risk-rating legend lines.\n',
         '- Essential services required: list the services whose box is ticked ',
         '(Household Support, Personal Support, Childcare).\n',
+        '- IMPORTANT: If a field is blank/absent on the form, return null (or "" for strings). ',
+        'Do NOT guess or infer a value that is not printed on the document.\n',
         '- Dates: return exactly as printed (do not reformat). Numbers as numbers.\n',
         '- Arrays with no items: return []. Unknown scalars: null.\n',
         'Output JSON with EXACTLY these keys:\n',
@@ -119,7 +138,8 @@ WITH queried AS (
       -- NOTE: no responseFormat — the Claude endpoint rejects the OpenAI-style
       -- '{"type":"json_object"}'. The prompt pins the model to raw JSON instead.
       -- failOnError=>false makes ai_query return STRUCT<result, errorMessage>
-      -- (per-row errors are routed out below rather than failing the pipeline).
+      -- (per-row errors are captured as extract_error and routed to quarantine, not
+      -- failing the whole pipeline).
       failOnError => false
     ) AS resp
   FROM STREAM(${catalog}.${silver_schema}.parsed_documents) pd
@@ -165,116 +185,179 @@ parsed AS (
       >'
     ) AS x
   FROM queried
+),
+-- Full typed projection (identical to the pre-validation schema), joined to the
+-- submitter's email. Kept in ONE place so both fan-out tables select final columns.
+projected AS (
+  SELECT
+    p.file_path,
+    p.file_name,
+    ds.submitter_email,
+    p.ingestion_timestamp,
+    p.extract_error,
+
+    -- ---- Identity / cover grid --------------------------------------------
+    x.client_first_name,
+    x.client_last_name,
+    x.prefers_to_be_called,
+    x.nhi_number,
+    x.gender,
+    -- Normalize DOB to a real DATE (ISO or NZ day-first formats).
+    coalesce(
+      try_to_date(x.date_of_birth, 'yyyy-MM-dd'), try_to_date(x.date_of_birth, 'dd/MM/yyyy'),
+      try_to_date(x.date_of_birth, 'dd.MM.yyyy'), try_to_date(x.date_of_birth, 'd/M/yyyy'),
+      try_to_date(x.date_of_birth, 'd.M.yyyy')
+    ) AS date_of_birth,
+    x.address,
+    x.phone,
+    x.email,
+    x.epoa_status,
+    x.interrai_score,
+    x.package_of_care,
+    x.package_of_care_hours,
+    x.funder,
+    x.contract_type,
+    x.region,
+    x.vulnerability_tier,
+    x.completed_by,
+    x.completed_date,
+    x.nasc_contact_name,
+    x.nasc_contact_phone,
+    x.care_coordinator,
+    x.review_frequency,
+    x.gp_name,
+    x.gp_contact,
+    x.emergency_contact_name,
+    x.emergency_contact_relationship,
+    x.emergency_contact_phone,
+    x.emergency_contact_2,
+    coalesce(
+      try_to_date(x.referral_date, 'yyyy-MM-dd'), try_to_date(x.referral_date, 'dd/MM/yyyy'),
+      try_to_date(x.referral_date, 'dd.MM.yyyy'), try_to_date(x.referral_date, 'd/M/yyyy'),
+      try_to_date(x.referral_date, 'd.M.yyyy')
+    ) AS referral_date,
+    coalesce(
+      try_to_date(x.service_start_date, 'yyyy-MM-dd'), try_to_date(x.service_start_date, 'dd/MM/yyyy'),
+      try_to_date(x.service_start_date, 'dd.MM.yyyy'), try_to_date(x.service_start_date, 'd/M/yyyy'),
+      try_to_date(x.service_start_date, 'd.M.yyyy')
+    ) AS service_start_date,
+    coalesce(
+      try_to_date(x.review_date, 'yyyy-MM-dd'), try_to_date(x.review_date, 'dd/MM/yyyy'),
+      try_to_date(x.review_date, 'dd.MM.yyyy'), try_to_date(x.review_date, 'd/M/yyyy'),
+      try_to_date(x.review_date, 'd.M.yyyy')
+    ) AS review_date,
+    x.weekly_care_hours,
+    x.referral_narrative,
+
+    -- ---- Clinical background ----------------------------------------------
+    x.primary_conditions,
+    x.medications,
+    x.allergies,
+    x.home_situation,
+    x.other_formal_supports,
+    x.hazards_risks_barriers,
+    x.risk_flags,
+    x.allied_health_equipment,
+    x.cultural_considerations,
+    x.ethnicity,
+
+    -- ---- Referral goals ---------------------------------------------------
+    x.long_term_goal,
+    x.short_term_goals,
+    x.goal_plan,
+
+    -- ---- Providers / home & community / participants ----------------------
+    x.other_providers,
+    x.home_description,
+    x.community_activities,
+    x.transport_access,
+    x.essential_services_required,
+    -- Kept for backward compatibility with Gold (fact_service_demand_by_region
+    -- explodes services_required): the ticked essential services are the services
+    -- actually recorded on the plan.
+    x.essential_services_required AS services_required,
+    x.participants,
+
+    -- ---- Care domains + plan-completion flags -----------------------------
+    -- The Mobility / Skin Care cells say "Completed? Yes|No"; coerce to real BOOLEAN
+    -- (Gold's fact_service_plan and fact_risk_profile rely on these being boolean).
+    CASE WHEN lower(trim(x.manual_handling_plan_completed)) IN ('yes','y','true','completed') THEN true
+         WHEN lower(trim(x.manual_handling_plan_completed)) IN ('no','n','false') THEN false END
+      AS manual_handling_plan_completed,
+    CASE WHEN lower(trim(x.pressure_area_plan_completed)) IN ('yes','y','true','completed') THEN true
+         WHEN lower(trim(x.pressure_area_plan_completed)) IN ('no','n','false') THEN false END
+      AS pressure_area_plan_completed,
+    x.care_domains,
+
+    -- ---- Operational tables -----------------------------------------------
+    x.emergency_management,
+    x.household_support_tasks,
+    x.personal_support_tasks,
+    x.essential_classification,
+    x.home_safety_risks,
+    x.risk_rating_legend
+  FROM parsed p
+  -- Stream-static join: `parsed` is the streaming side; document_submissions is read as a
+  -- current snapshot (no STREAM()) purely to enrich each new plan with its submitter_email.
+  LEFT JOIN ${catalog}.${bronze_schema}.document_submissions ds ON p.file_path = ds.file_path
+),
+-- Build the human-readable list of validation failures. If the AI call itself errored,
+-- that is the (single) reason; otherwise one message per missing mandatory field.
+validated AS (
+  SELECT
+    *,
+    CASE
+      WHEN extract_error IS NOT NULL
+        THEN array(concat('AI extraction failed: ', coalesce(extract_error, 'unknown error')))
+      ELSE filter(array(
+        CASE WHEN client_first_name IS NULL OR trim(client_first_name) = '' THEN 'Missing client first name' END,
+        CASE WHEN gender IS NULL OR trim(gender) = ''                       THEN 'Missing gender' END,
+        CASE WHEN date_of_birth IS NULL                                     THEN 'Missing date of birth' END,
+        CASE WHEN address IS NULL OR trim(address) = ''                     THEN 'Missing address' END,
+        CASE WHEN gp_name IS NULL OR trim(gp_name) = ''                     THEN 'Missing GP name' END,
+        CASE WHEN nhi_number IS NULL OR trim(nhi_number) = ''               THEN 'Missing NHI number' END
+      ), e -> e IS NOT NULL)
+    END AS validation_errors
+  FROM projected
 )
 SELECT
-  p.file_path,
-  p.file_name,
-  ds.submitter_email,
-  p.ingestion_timestamp,
+  *,
+  (size(validation_errors) = 0) AS is_valid
+FROM validated;
 
-  -- ---- Identity / cover grid ------------------------------------------------
-  x.client_first_name,
-  x.client_last_name,
-  x.prefers_to_be_called,
-  x.nhi_number,
-  x.gender,
-  -- Normalize DOB to a real DATE (ISO or NZ day-first formats).
-  coalesce(
-    try_to_date(x.date_of_birth, 'yyyy-MM-dd'), try_to_date(x.date_of_birth, 'dd/MM/yyyy'),
-    try_to_date(x.date_of_birth, 'dd.MM.yyyy'), try_to_date(x.date_of_birth, 'd/M/yyyy'),
-    try_to_date(x.date_of_birth, 'd.M.yyyy')
-  ) AS date_of_birth,
-  x.address,
-  x.phone,
-  x.email,
-  x.epoa_status,
-  x.interrai_score,
-  x.package_of_care,
-  x.package_of_care_hours,
-  x.funder,
-  x.contract_type,
-  x.region,
-  x.vulnerability_tier,
-  x.completed_by,
-  x.completed_date,
-  x.nasc_contact_name,
-  x.nasc_contact_phone,
-  x.care_coordinator,
-  x.review_frequency,
-  x.gp_name,
-  x.gp_contact,
-  x.emergency_contact_name,
-  x.emergency_contact_relationship,
-  x.emergency_contact_phone,
-  x.emergency_contact_2,
-  coalesce(
-    try_to_date(x.referral_date, 'yyyy-MM-dd'), try_to_date(x.referral_date, 'dd/MM/yyyy'),
-    try_to_date(x.referral_date, 'dd.MM.yyyy'), try_to_date(x.referral_date, 'd/M/yyyy'),
-    try_to_date(x.referral_date, 'd.M.yyyy')
-  ) AS referral_date,
-  coalesce(
-    try_to_date(x.service_start_date, 'yyyy-MM-dd'), try_to_date(x.service_start_date, 'dd/MM/yyyy'),
-    try_to_date(x.service_start_date, 'dd.MM.yyyy'), try_to_date(x.service_start_date, 'd/M/yyyy'),
-    try_to_date(x.service_start_date, 'd.M.yyyy')
-  ) AS service_start_date,
-  coalesce(
-    try_to_date(x.review_date, 'yyyy-MM-dd'), try_to_date(x.review_date, 'dd/MM/yyyy'),
-    try_to_date(x.review_date, 'dd.MM.yyyy'), try_to_date(x.review_date, 'd/M/yyyy'),
-    try_to_date(x.review_date, 'd.M.yyyy')
-  ) AS review_date,
-  x.weekly_care_hours,
-  x.referral_narrative,
+-- COMMAND ----------
 
-  -- ---- Clinical background --------------------------------------------------
-  x.primary_conditions,
-  x.medications,
-  x.allergies,
-  x.home_situation,
-  x.other_formal_supports,
-  x.hazards_risks_barriers,
-  x.risk_flags,
-  x.allied_health_equipment,
-  x.cultural_considerations,
-  x.ethnicity,
+-- DBTITLE 1,service_plan_extracted — VALID documents (Gold reads this; schema unchanged)
+CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.service_plan_extracted
+CLUSTER BY (region, nhi_number)
+COMMENT "Fully-validated service plans (all mandatory fields present). Fan-out of service_plan_candidates where is_valid = true. Gold's dimensional model is built entirely from this table. Clustered by region + nhi_number."
+AS SELECT * EXCEPT (extract_error, validation_errors, is_valid)
+FROM STREAM(${catalog}.${silver_schema}.service_plan_candidates)
+WHERE is_valid;
 
-  -- ---- Referral goals -------------------------------------------------------
-  x.long_term_goal,
-  x.short_term_goals,
-  x.goal_plan,
+-- COMMAND ----------
 
-  -- ---- Providers / home & community / participants --------------------------
-  x.other_providers,
-  x.home_description,
-  x.community_activities,
-  x.transport_access,
-  x.essential_services_required,
-  -- Kept for backward compatibility with Gold (fact_service_demand_by_region
-  -- explodes services_required): the ticked essential services are the services
-  -- actually recorded on the plan.
-  x.essential_services_required AS services_required,
-  x.participants,
-
-  -- ---- Care domains + plan-completion flags ---------------------------------
-  -- The Mobility / Skin Care cells say "Completed? Yes|No"; coerce to real BOOLEAN
-  -- (Gold's fact_service_plan and fact_risk_profile rely on these being boolean).
-  CASE WHEN lower(trim(x.manual_handling_plan_completed)) IN ('yes','y','true','completed') THEN true
-       WHEN lower(trim(x.manual_handling_plan_completed)) IN ('no','n','false') THEN false END
-    AS manual_handling_plan_completed,
-  CASE WHEN lower(trim(x.pressure_area_plan_completed)) IN ('yes','y','true','completed') THEN true
-       WHEN lower(trim(x.pressure_area_plan_completed)) IN ('no','n','false') THEN false END
-    AS pressure_area_plan_completed,
-  x.care_domains,
-
-  -- ---- Operational tables ---------------------------------------------------
-  x.emergency_management,
-  x.household_support_tasks,
-  x.personal_support_tasks,
-  x.essential_classification,
-  x.home_safety_risks,
-  x.risk_rating_legend
-FROM parsed p
--- Stream-static join: `parsed` is the streaming side; document_submissions is read as a
--- current snapshot (no STREAM()) purely to enrich each new plan with its submitter_email.
-LEFT JOIN ${catalog}.${bronze_schema}.document_submissions ds ON p.file_path = ds.file_path
--- Route per-row failures out (ai_query failOnError=>false surfaces errorMessage).
-WHERE p.extract_error IS NULL AND x.nhi_number IS NOT NULL;
+-- DBTITLE 1,service_plan_quarantine — REJECTED documents (the app's Data Quality tab)
+CREATE OR REFRESH STREAMING TABLE ${catalog}.${silver_schema}.service_plan_quarantine
+CLUSTER BY (submitter_email)
+COMMENT "Documents that FAILED validation and were withheld from Gold — one row per rejected PDF with a human-readable rejection_reason (semicolon-joined list of missing mandatory fields, or the AI extraction error). Fan-out of service_plan_candidates where is_valid = false. Read by the app's Data Quality tab so users can see WHICH file failed and WHY."
+AS SELECT
+  file_path,
+  file_name,
+  submitter_email,
+  ingestion_timestamp,
+  client_first_name,
+  client_last_name,
+  nhi_number,
+  gender,
+  date_of_birth,
+  address,
+  gp_name,
+  region,
+  care_coordinator,
+  validation_errors,
+  concat_ws('; ', validation_errors) AS rejection_reason,
+  size(validation_errors)            AS error_count,
+  extract_error
+FROM STREAM(${catalog}.${silver_schema}.service_plan_candidates)
+WHERE NOT is_valid;

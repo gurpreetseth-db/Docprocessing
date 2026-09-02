@@ -5,8 +5,10 @@
 
 Insurance/care providers' coordinators submit **Service Plan** PDFs (client details,
 funder, care package, conditions, risks, goals). Auto Loader ingests them, AI Functions
-parse and structure them, Gold materialized views power a **Genie Agent**, and a sharp
-3-tab **Databricks App** lets users submit, monitor, and query the data in natural language.
+parse and structure them, the pipeline **validates mandatory fields and quarantines any
+document that fails**, Gold materialized views power a **Genie Agent**, and a sharp
+4-tab **Databricks App** lets users submit, monitor, review data-quality rejections, and
+query the data in natural language.
 
 Everything is **config-driven and self-provisioning**: one file (`config.yml`) defines all
 names, and a single `deploy` + two `run` commands stand up the catalog, schemas, volume,
@@ -27,12 +29,14 @@ sample data, pipeline, app, and the Genie Agent — no manual id wiring.
                                           ┌─────────────▼─────────────────┐
                                           │         SILVER LAYER            │
                                           │  ai_parse_document() ─▶ text    │
-                                          │  ai_extract() ─▶ typed fields   │
+                                          │  ai_query() ─▶ typed fields     │
                                           │  dates normalized ─▶ real DATE  │
                                           │  parsed_documents               │
-                                          │  service_plan_extracted         │
+                                          │  service_plan_candidates        │
+                                          │   ├─ valid ─▶ service_plan_extracted
+                                          │   └─ invalid ─▶ service_plan_quarantine ─▶ App "Data Quality" tab
                                           └───────────────┬───────────────┘
-                                                        │
+                                                        │ (valid only)
                                           ┌─────────────▼─────────────────┐
                                           │       GOLD LAYER (dim/fact MVs) │
                                           │  dim_client                     │
@@ -55,12 +59,13 @@ sample data, pipeline, app, and the Genie Agent — no manual id wiring.
 | Component | Description |
 |-----------|-------------|
 | **Bronze** | Auto Loader ingests PDFs as binary; `document_submissions` parses the folder path into submitter email + submission id |
-| **Silver** | `ai_parse_document()` extracts text; `ai_extract()` structures it into typed Service Plan fields; dates are normalized to real `DATE` |
-| **Gold** | Dimensional model (`dim_*` / `fact_*` / `agg_*`) powering analytics and Genie |
-| **Databricks App** | 3-tab Dash portal: Submit & Track, Pipeline Ops, Genie Assistant |
+| **Silver** | `ai_parse_document()` extracts text; a single `ai_query()` (Claude) structures it into typed fields in `service_plan_candidates`; dates normalized to real `DATE`. Each document is **validated for mandatory fields** and fanned out: valid → `service_plan_extracted`, invalid → `service_plan_quarantine` |
+| **Validation & Quarantine** | Documents missing **client first name, gender, date of birth, address, GP name, or NHI** (or that error during extraction) are withheld from Gold and written to `service_plan_quarantine` with a human-readable `rejection_reason`. Warn-only DLT expectations also publish per-field violation rates to the pipeline's Data Quality view |
+| **Gold** | Dimensional model (`dim_*` / `fact_*` / `agg_*`) built only from **valid** plans, powering analytics and Genie |
+| **Databricks App** | 4-tab Dash portal: Submit & Track, Pipeline Ops, **Data Quality**, Genie Assistant |
 | **Genie Agent** | Genie space auto-created after the pipeline; the app resolves it **by name** |
 | **Scheduled Job** | Runs the pipeline every 4 hours, then provisions/refreshes the Genie Agent; also triggerable on-demand from the app |
-| **Setup Job** | Creates catalog/schemas/volume/users, grants the app's service principal, and generates sample Service Plan PDFs |
+| **Setup Job** | Creates catalog/schemas/volume/users, grants the app's service principal, and generates sample Service Plan PDFs — including deliberate **anomalous** PDFs (missing fields) when `generate_anomalies` is on |
 
 ## Project Structure
 
@@ -106,6 +111,8 @@ SQL, setup/genie notebooks, and the app all read from it — nothing is duplicat
 | `app_name` | `doc-processing-app` | app resource, grants |
 | `warehouse_id` | `29b33b8b6a20b116` | app, genie, dashboard |
 | `num_users` / `num_documents` | `10` / `20` | setup job |
+| `generate_anomalies` | `true` | setup job (inject missing-field PDFs) |
+| `anomaly_document_count` | `5` | setup job (how many bad PDFs; rotates the 5 fields) |
 | `processing_cron` / `timezone` | every 4h / `UTC` | scheduled job |
 
 To retarget: edit the defaults in `config.yml` (or override per target under
@@ -143,13 +150,34 @@ from bundle app-resources, and finds the Genie Agent by its configured name at r
 > the provisioning step best-effort grants the app's service principal access and prints a
 > one-line manual fallback if it can't.
 
-## The App (3 tabs)
+## The App (4 tabs)
 
 1. **Submit & Track** — detects the logged-in user, lets them upload Service Plan PDFs to
-   the volume, and lists their submissions with a derived Processed/Pending status.
+   the volume, and lists their submissions with a derived Processed/Pending status. Click a
+   row to view the PDF.
 2. **Pipeline Ops** — trigger the pipeline on demand; shows the last 5 runs with status,
    failure reason, and the count + names of files processed per run.
-3. **Genie Assistant** — natural-language Q&A over the Gold tables via the Genie Agent.
+3. **Data Quality** — every PDF the pipeline **rejected**, with the reason(s) it failed
+   (missing first name / gender / DOB / address / GP name / NHI). Includes a live
+   reason-breakdown bar chart, a free-text search, a reason filter, and clickable rows that
+   open the offending PDF. The KPI ribbon gains a **Rejected** count.
+4. **Genie Assistant** — natural-language Q&A over the Gold tables via the Genie Agent.
+
+### Data Quality & Validation
+
+The Silver pipeline validates every document against six mandatory fields (client first
+name, gender, date of birth, address, GP name, NHI). A document missing any of them — or
+one whose AI extraction errors — is **withheld from Gold** and written to
+`${silver_schema}.service_plan_quarantine` with a semicolon-joined `rejection_reason`. Only
+valid plans reach `service_plan_extracted` and the Gold model, so analytics and Genie are
+never polluted by incomplete records.
+
+To demo this end-to-end, the setup job can inject deliberately anomalous PDFs
+(`generate_anomalies: true`, `anomaly_document_count: 5`). Each bad PDF blanks one mandatory
+field, rotating through the five so **every rejection reason appears at least once**. Set
+`generate_anomalies: false` to generate only clean documents. Editing the validation rules
+after data already exists? Re-run with `--full-refresh-all` (see below) so the whole corpus
+is re-validated.
 
 ## Sample Questions for Genie
 
