@@ -233,9 +233,18 @@ existing documents (e.g. after editing `02_silver_processing.sql`), do a full re
 ```bash
 # 1) Full refresh of the pipeline — re-parses + re-extracts EVERY document, rebuilds Gold
 databricks bundle run doc_processing_pipeline -t dev -p docprocessing --full-refresh-all
-# 2) Rebuild the metric views + refresh the Genie agent afterwards
+# 2) Move rejected files, rebuild the metric views + refresh the Genie agent afterwards
 databricks bundle run doc_processing_job -t dev -p docprocessing
 ```
+
+> **One-time full refresh when upgrading an EXISTING pipeline to validation/quarantine.**
+> `service_plan_extracted` changed its streaming source (it now reads from the new
+> `service_plan_candidates` instead of `parsed_documents`). A streaming table pins its
+> source in its checkpoint, so the first incremental run after this upgrade fails with
+> `DIFFERENT_DELTA_TABLE_READ_BY_STREAMING_SOURCE`. Do a one-time full refresh (step 1
+> above, or `databricks pipelines start-update <pipeline-id> --full-refresh`) to reset the
+> checkpoints. Fresh deployments are unaffected — this only applies when the old tables
+> already exist.
 
 ## Roadmap
 
